@@ -1,12 +1,14 @@
 /**
  * 轻量多语言层（无第三方 i18n 依赖）。
  *
- * - 英文词典是唯一类型来源：所有中文键必须与英文键一一对应，
+ * - 英文词典是唯一类型来源：所有其他语言的键必须与英文键一一对应，
  *   漏翻/多键在 `tsc --noEmit` 阶段就会报错。
- * - 文案用 `{name}` 占位符；英文复数按 `key_one` / `key_other` 两套键，
- *   中文两套键写同样的文本即可（中文没有单复数变化）。
+ * - 支持 en / zh / zh-Hant / ja / ko / fr / de / es / pt；
+ *   简体中文写在本文件，其余 7 种在 `locales/` 下各自一个模块。
+ * - 文案用 `{name}` 占位符；复数按 `key_one` / `key_other` 两套键，
+ *   中文、日文、韩文两套键写同样的文本（没有单复数变化）。
  * - 语言选择持久化在 AsyncStorage；默认跟随系统（expo-localization），
- *   非中文系统回退到英文。
+ *   中文按脚本/地区区分简繁，未支持的语言回退到英文。
  * - `useI18n()` 订阅语言变化，切换后界面立即重渲染；非组件代码用
  *   `t()` / `tp()` 读当前语言。
  */
@@ -14,7 +16,25 @@ import { useSyncExternalStore } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getLocales } from 'expo-localization';
 
-export const LOCALES = ['en', 'zh'] as const;
+import de from './locales/de';
+import es from './locales/es';
+import fr from './locales/fr';
+import ja from './locales/ja';
+import ko from './locales/ko';
+import pt from './locales/pt';
+import zhHant from './locales/zh-Hant';
+
+export const LOCALES = [
+  'en',
+  'zh',
+  'zh-Hant',
+  'ja',
+  'ko',
+  'fr',
+  'de',
+  'es',
+  'pt',
+] as const;
 export type Locale = (typeof LOCALES)[number];
 
 /** 用户设置：跟随系统，或固定某种语言 */
@@ -148,7 +168,14 @@ const en = {
   language: 'Language',
   languageSystem: 'System default',
   languageChinese: '简体中文',
+  languageTraditionalChinese: '繁體中文',
   languageEnglish: 'English',
+  languageJapanese: '日本語',
+  languageKorean: '한국어',
+  languageFrench: 'Français',
+  languageGerman: 'Deutsch',
+  languageSpanish: 'Español',
+  languagePortuguese: 'Português',
   languageHint: 'Changes the app immediately',
 
   // ---- 相机 ----
@@ -519,7 +546,14 @@ const zh: Record<MessageKey, string> = {
   language: '语言',
   languageSystem: '跟随系统',
   languageChinese: '简体中文',
+  languageTraditionalChinese: '繁體中文',
   languageEnglish: 'English',
+  languageJapanese: '日本語',
+  languageKorean: '한국어',
+  languageFrench: 'Français',
+  languageGerman: 'Deutsch',
+  languageSpanish: 'Español',
+  languagePortuguese: 'Português',
   languageHint: '切换后界面立即生效',
 
   captureFailedTitle: '拍照失败',
@@ -742,12 +776,53 @@ const zh: Record<MessageKey, string> = {
   cropA11y: '裁剪区域，拖动四个角点或四条边的中点调整',
 };
 
-const dictionaries: Record<Locale, Record<MessageKey, string>> = { en, zh };
+const dictionaries: Record<Locale, Record<MessageKey, string>> = {
+  en,
+  zh,
+  'zh-Hant': zhHant,
+  ja,
+  ko,
+  fr,
+  de,
+  es,
+  pt,
+};
 
+/** 中文按脚本/地区区分简繁，其余语言按 languageCode 匹配 */
 function detectSystemLocale(): Locale {
   try {
-    const code = getLocales()[0]?.languageCode?.toLowerCase();
-    return code === 'zh' ? 'zh' : 'en';
+    const locale = getLocales()[0];
+    const code = locale?.languageCode?.toLowerCase();
+    switch (code) {
+      case 'zh': {
+        const script = locale?.languageScriptCode?.toLowerCase();
+        const region = (
+          locale?.languageRegionCode ??
+          locale?.regionCode ??
+          ''
+        ).toUpperCase();
+        return script === 'hant' ||
+          region === 'TW' ||
+          region === 'HK' ||
+          region === 'MO'
+          ? 'zh-Hant'
+          : 'zh';
+      }
+      case 'ja':
+        return 'ja';
+      case 'ko':
+        return 'ko';
+      case 'fr':
+        return 'fr';
+      case 'de':
+        return 'de';
+      case 'es':
+        return 'es';
+      case 'pt':
+        return 'pt';
+      default:
+        return 'en';
+    }
   } catch {
     return 'en';
   }
@@ -830,7 +905,9 @@ export function tp(
   count: number,
   params?: MessageParams,
 ): string {
-  const suffix: PluralSuffix = count === 1 ? '_one' : '_other';
+  // 法语把 0 也当作单数（CLDR：one = 0,1），其余语言只在 1 时用单数
+  const singular = currentLocale === 'fr' ? count <= 1 : count === 1;
+  const suffix: PluralSuffix = singular ? '_one' : '_other';
   return t(`${key}${suffix}` as MessageKey, { count, ...params });
 }
 

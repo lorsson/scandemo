@@ -1,0 +1,11 @@
+{
+  "ios": {
+    "CFBundleDisplayName": "Scan Demo",
+    "NSCameraUsageDescription": "Scan Demoは書類のスキャンにカメラを使用します。",
+    "NSPhotoLibraryUsageDescription": "Scan Demoはスキャンする画像を読み込むために写真ライブラリにアクセスします。",
+    "NSPhotoLibraryAddUsageDescription": "Scan Demoはスキャンした書類を写真ライブラリに保存します。"
+  },
+  "android": {
+    "app_name": "Scan Demo"
+  }
+}

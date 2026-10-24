@@ -41,11 +41,25 @@
           "supportedLocales": {
             "ios": [
               "en",
-              "zh-Hans"
+              "zh-Hans",
+              "zh-Hant",
+              "ja",
+              "ko",
+              "fr",
+              "de",
+              "es",
+              "pt"
             ],
             "android": [
               "en",
-              "zh-Hans"
+              "zh-Hans",
+              "zh-Hant",
+              "ja",
+              "ko",
+              "fr",
+              "de",
+              "es",
+              "pt"
             ]
           }
         }
@@ -54,7 +68,14 @@
     ],
     "locales": {
       "en": "./locales/en.json",
-      "zh-Hans": "./locales/zh-Hans.json"
+      "zh-Hans": "./locales/zh-Hans.json",
+      "zh-Hant": "./locales/zh-Hant.json",
+      "ja": "./locales/ja.json",
+      "ko": "./locales/ko.json",
+      "fr": "./locales/fr.json",
+      "de": "./locales/de.json",
+      "es": "./locales/es.json",
+      "pt": "./locales/pt.json"
     },
     "ios": {
       "supportsTablet": true,

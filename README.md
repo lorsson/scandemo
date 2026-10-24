@@ -76,11 +76,13 @@ JNI、Objective-C++、Node-API 编译进三个平台。
 - **双引擎**：有原生模块时滤镜与几何变换（裁剪 / 缩放 / 旋转 / 缩略图）全走
   C++，JS 侧只剩参数换算；Expo Go 等没有原生模块的环境自动退回
   WebView + Canvas 与 `expo-image-manipulator`，功能一致。
-- **中英双语（海外版）**：界面文案、算法名、错误提示，以及 Android / iOS 的
-  应用名和相机 / 相册权限说明都支持简体中文与 English；默认跟随系统，
-  也可在「我的 → 语言」里手动切换，立即生效并持久化。词典在
-  `src/lib/i18n.ts`，漏翻的键会在 `tsc --noEmit` 阶段报错；
-  系统级文案在 `locales/*.json`。详见 [docs/DESIGN.md §10.4](docs/DESIGN.md)。
+- **9 种语言（海外版）**：简体中文、繁體中文、English、日本語、한국어、
+  Français、Deutsch、Español、Português。界面文案、算法名、错误提示，以及
+  Android / iOS 的应用名和相机 / 相册权限说明都已本地化；默认跟随系统
+  （中文按脚本/地区自动区分简繁），也可在「我的 → 语言」里手动切换，
+  立即生效并持久化。词典在 `src/lib/i18n.ts` 与 `src/lib/locales/`，
+  漏翻的键会在 `tsc --noEmit` 阶段报错；系统级文案在 `locales/*.json`。
+  详见 [docs/DESIGN.md §10.4](docs/DESIGN.md)。
 
 ---
 

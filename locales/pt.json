@@ -1,0 +1,11 @@
+{
+  "ios": {
+    "CFBundleDisplayName": "Scan Demo",
+    "NSCameraUsageDescription": "O Scan Demo usa a câmera para digitalizar documentos.",
+    "NSPhotoLibraryUsageDescription": "O Scan Demo acessa sua galeria de fotos para importar imagens a serem digitalizadas.",
+    "NSPhotoLibraryAddUsageDescription": "O Scan Demo salva documentos digitalizados na sua galeria de fotos."
+  },
+  "android": {
+    "app_name": "Scan Demo"
+  }
+}

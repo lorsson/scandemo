@@ -1158,36 +1158,40 @@ limits / busy`，每次改动都通过 `onUpdate` 回写 `App.tsx` 并落盘；`
 
 目标：不引入第三方 i18n 依赖，一套代码同时发国内版与海外版。
 
-- **词典**：`src/lib/i18n.ts`。英文词典用 `as const` 定义，`keyof` 即
-  `MessageKey`；中文词典声明为 `Record<MessageKey, string>`，少翻/多翻都会在
-  `tsc --noEmit` 阶段报错。
-- **复数**：英文按 `key_one` / `key_other` 两套键，`tp(key, count)` 按
-  `count === 1` 选择；中文两套键写同样文本（中文没有单复数变化）。
+- **词典**：`src/lib/i18n.ts` 里的英文词典用 `as const` 定义，`keyof` 即
+  `MessageKey`；简体中文位于同文件，其余 7 种语言位于 `src/lib/locales/`，
+  全部声明为 `Record<MessageKey, string>`，少翻/多翻都会在 `tsc --noEmit`
+  阶段报错。当前支持 `en / zh / zh-Hant / ja / ko / fr / de / es / pt`。
+- **复数**：按 `key_one` / `key_other` 两套键，`tp(key, count)` 默认在
+  `count === 1` 时用单数；法语按 CLDR 把 0 也视为单数。中文、日文、韩文
+  两套键写同样文本（没有单复数变化）。
   `PluralKey` 由 `MessageKey` 模板字面量推导，调用处不会拼错后缀。
 - **运行时**：模块级 `currentLocale` + `version` 计数器。
   `useI18n()` 通过 `useSyncExternalStore` 订阅变化，切换语言后所有使用它的
   组件立即重渲染；非组件代码（存储、PDF、滤镜错误）直接用 `t()`。
   `t` / `tp` 是模块级函数而不是闭包，`useCallback` 不会捕获旧语言。
 - **持久化**：偏好存 `AsyncStorage` 的 `settings.locale.v1`，取值为
-  `system | en | zh`；`App.tsx` 启动时先 `await initI18n()` 再加载文档，
-  保证旧数据里缺标题的记录按当前语言生成默认名。
-- **跟随系统**：`expo-localization` 的 `getLocales()[0].languageCode`，
-  中文回退 `zh`，其余一律 `en`。设置页提供「跟随系统 / 简体中文 / English」
-  三个选项。
-- **系统级文案**：`app.json` 的 `locales` 指向 `locales/en.json` 与
-  `locales/zh-Hans.json`，prebuild 时分别生成 iOS 的
-  `InfoPlist.strings`（`CFBundleDisplayName`、相机/相册权限说明）和 Android 的
-  `values-b+zh+Hans/strings.xml`（`app_name`）。基础 `app.json` 用英文，
-  英文是缺省回退。`expo-localization` 的 `supportedLocales` 同时声明
-  `en` / `zh-Hans`，让系统设置里的「App 语言」列表只出现这两种。
+  `system` 或 9 个语言标签之一；`App.tsx` 启动时先 `await initI18n()` 再加载
+  文档，保证旧数据里缺标题的记录按当前语言生成默认名。
+- **跟随系统**：`expo-localization` 的 `getLocales()[0]`：`languageCode` 为
+  `zh` 时再看 `languageScriptCode`（`Hant`）和地区（TW/HK/MO）区分简繁；
+  `ja/ko/fr/de/es/pt` 直接映射到对应词典；其余一律回退 `en`。设置页提供
+  「跟随系统 + 9 种语言」共 10 个选项，语言名称始终用该语言自身的写法。
+- **系统级文案**：`app.json` 的 `locales` 指向 `locales/<tag>.json`（9 个），
+  prebuild 时分别生成 iOS 的 `InfoPlist.strings`（`CFBundleDisplayName`、
+  相机/相册权限说明）和 Android 的 `values-b+<tag>/strings.xml`（`app_name`）。
+  基础 `app.json` 用英文，英文是缺省回退。`expo-localization` 的
+  `supportedLocales` 同步声明这 9 个 BCP-47 标签，让系统设置里的
+  「App 语言」列表与内置词典一致。
 - **算法名**：`FILTER_LABEL_KEYS` / `ADJUST_LABEL_KEYS` 把稳定的算法 key 映射到
   词典键，`filterLabel()` / `adjustLabel()` 在渲染时取词，不再有模块级
   `FILTER_LABELS` 常量，因此算法名会跟随语言切换。
 
-取舍：当前只有中英两种语言，所以复数规则简化为 `count === 1`；若以后加入
-俄语、阿拉伯语等复杂复数语言，应改用 `Intl.PluralRules` 并把词典拆成
-`_zero/_one/_two/_few/_many/_other`。RTL 语言同理需要在
-`expo-localization` 插件里打开 `supportsRTL` 并检查布局。
+取舍：当前 9 种语言的复数规则都只需区分单复数（法语额外把 0 当单数），
+所以没有引入 `Intl.PluralRules`；若以后加入俄语、阿拉伯语、波兰语等复杂
+复数语言，应改用 `Intl.PluralRules` 并把词典拆成
+`_zero/_one/_two/_few/_many/_other`。阿拉伯语、希伯来语等 RTL 语言同理
+需要在 `expo-localization` 插件里打开 `supportsRTL` 并检查布局。
 
 ---
 
@@ -1762,6 +1766,6 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 | 多页扫描编辑 | `src/screens/ScanEditorScreen.tsx` |
 | 单页编辑 | `src/screens/EditorScreen.tsx`（`showPageTools`）、`src/screens/PdfScreen.tsx` |
 | 路由 | `App.tsx` |
-| 多语言运行时 | `src/lib/i18n.ts` |
-| 系统级文案 | `locales/en.json`、`locales/zh-Hans.json`、`app.json` 的 `locales` |
+| 多语言运行时 | `src/lib/i18n.ts`、`src/lib/locales/*.ts`（7 种语言词典） |
+| 系统级文案 | `locales/*.json`（9 种语言）、`app.json` 的 `locales` |
 | 构建配置 | `app.json`、`metro.config.js`、`.github/workflows/ios-unsigned-ipa.yml` |

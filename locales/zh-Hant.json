@@ -1,0 +1,11 @@
+{
+  "ios": {
+    "CFBundleDisplayName": "掃描 Demo",
+    "NSCameraUsageDescription": "掃描 Demo 需要使用相機拍攝文件進行掃描。",
+    "NSPhotoLibraryUsageDescription": "掃描 Demo 需要存取相簿，以便匯入待掃描的圖片。",
+    "NSPhotoLibraryAddUsageDescription": "掃描 Demo 需要將掃描文件儲存到相簿。"
+  },
+  "android": {
+    "app_name": "掃描 Demo"
+  }
+}

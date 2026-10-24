@@ -1,0 +1,11 @@
+{
+  "ios": {
+    "CFBundleDisplayName": "Scan Demo",
+    "NSCameraUsageDescription": "Scan Demo utilise l’appareil photo pour numériser des documents.",
+    "NSPhotoLibraryUsageDescription": "Scan Demo accède à votre photothèque pour importer des images à numériser.",
+    "NSPhotoLibraryAddUsageDescription": "Scan Demo enregistre les documents numérisés dans votre photothèque."
+  },
+  "android": {
+    "app_name": "Scan Demo"
+  }
+}

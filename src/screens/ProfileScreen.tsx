@@ -31,7 +31,14 @@ export default function ProfileScreen({ docs, pdfs }: Props) {
   const languageOptions: { value: LocalePreference; label: string }[] = [
     { value: 'system', label: t('languageSystem') },
     { value: 'zh', label: t('languageChinese') },
+    { value: 'zh-Hant', label: t('languageTraditionalChinese') },
     { value: 'en', label: t('languageEnglish') },
+    { value: 'ja', label: t('languageJapanese') },
+    { value: 'ko', label: t('languageKorean') },
+    { value: 'fr', label: t('languageFrench') },
+    { value: 'de', label: t('languageGerman') },
+    { value: 'es', label: t('languageSpanish') },
+    { value: 'pt', label: t('languagePortuguese') },
   ];
 
   return (
