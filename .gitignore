@@ -4,8 +4,8 @@ node_modules/
 .pnp.js
 
 # Expo / RN generated native projects (CNG: 由 expo prebuild 生成，不提交)
-ios/
-android/
+/ios/
+/android/
 .expo/
 .expo-shared/
 
