@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Document scanner demo module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Document scanner demo"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "扫描 Demo"
+    }
+  ]
+}

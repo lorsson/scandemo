@@ -1,0 +1,51 @@
+# dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Expo / RN generated native projects (CNG: 由 expo prebuild 生成，不提交)
+ios/
+android/
+.expo/
+.expo-shared/
+
+# build output
+build/
+dist/
+web-build/
+*.ipa
+*.apk
+*.aab
+*.xcarchive
+
+# native build artifacts (CMake / Gradle / Kotlin)
+**/.cxx/
+**/.gradle/
+**/.kotlin/
+**/*.o
+**/*.so
+
+# HarmonyOS build artifacts
+**/.hvigor/
+**/oh_modules/
+harmony/local.properties
+
+# stray screenshots at repo root
+/scan_*.png
+/demo_*.png
+
+# logs / misc
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# tests
+coverage/

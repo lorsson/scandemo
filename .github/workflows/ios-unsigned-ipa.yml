@@ -1,0 +1,84 @@
+name: ios-unsigned-ipa
+
+# 在 GitHub 的 macOS runner 上生成一个「未签名」的 iOS .ipa。
+# 无签名 IPA 不能直接安装，需要在 Windows 上用 Sideloadly / AltStore
+# 配合免费 Apple ID 侧载（7 天重签）；将来有 $99 开发者账号可改为正式签名。
+#
+# 触发：Actions 页面手动 Run workflow，或 push 到 main。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-ios-unsigned:
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      # 生成 ios/ 原生工程（CNG：仓库里不提交 ios/）
+      - name: Expo prebuild (iOS)
+        env:
+          CI: "1"
+        run: npx expo prebuild --platform ios --no-install
+
+      - name: Ensure CocoaPods
+        run: |
+          if ! command -v pod >/dev/null 2>&1; then
+            sudo gem install cocoapods
+          fi
+          pod --version
+
+      - name: Pod install
+        working-directory: ios
+        run: pod install --repo-update
+
+      - name: Build (unsigned)
+        run: |
+          set -euo pipefail
+          WS=$(ls -d ios/*.xcworkspace | head -n1)
+          SCHEME=$(basename "$WS" .xcworkspace)
+          echo "workspace=$WS"
+          echo "scheme=$SCHEME"
+          xcodebuild -workspace "$WS" -scheme "$SCHEME" \
+            -configuration Release -sdk iphoneos \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP_PATH=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)
+          echo "app=$APP_PATH"
+          mkdir -p out/Payload
+          cp -R "$APP_PATH" out/Payload/
+          ( cd out && zip -qr ../app-unsigned.ipa Payload )
+          ls -lh app-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-unsigned-ipa
+          path: app-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7

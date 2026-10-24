@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>鸿蒙 · image-core</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; padding: 18px; background: #0f1115; color: #e6e6e6;
+      font-family: -apple-system, "HarmonyOS Sans", "Segoe UI", sans-serif;
+    }
+    h3 { margin: 0 0 4px; font-weight: 600; }
+    .sub { color: #8a93a6; font-size: 13px; margin-bottom: 16px; }
+    #btns { display: flex; flex-wrap: wrap; gap: 8px; }
+    button {
+      padding: 10px 16px; border-radius: 12px; border: 1px solid #2a3140;
+      background: #1b1f27; color: #e6e6e6; font-size: 15px;
+    }
+    button:active { background: #2a3040; }
+    #log {
+      white-space: pre-wrap; font-size: 13px; line-height: 1.55;
+      margin-top: 16px; color: #9fe3c8; background: #12161d; padding: 12px;
+      border-radius: 12px; min-height: 60px;
+    }
+  </style>
+</head>
+<body>
+  <h3>鸿蒙 · 共享 C++ 图像核心</h3>
+  <div class="sub">ArkTS 解码/编码 · NAPI 调用 image_core 像素处理</div>
+  <div id="btns"></div>
+  <div id="log">初始化中…</div>
+
+  <script>
+    (function () {
+      var samplePath = '';
+      var seq = 0;
+
+      function el(id) { return document.getElementById(id); }
+      function log(s) {
+        var box = el('log');
+        box.textContent = s + "\n" + box.textContent;
+      }
+
+      function renderButtons() {
+        var filters = [
+          ['增强', 'enhance'],
+          ['灰度', 'gray'],
+          ['黑白', 'bw'],
+          ['原图', 'original']
+        ];
+        var box = el('btns');
+        box.innerHTML = '';
+        filters.forEach(function (f) {
+          var b = document.createElement('button');
+          b.textContent = f[0];
+          b.addEventListener('click', function () { run(f[1]); });
+          box.appendChild(b);
+        });
+      }
+
+      function run(filter) {
+        if (!samplePath) { log('示例图未就绪（检查 rawfile/sample.jpg）'); return; }
+        var id = ++seq;
+        var out = samplePath.replace(/sample\.jpg$/, 'out-' + filter + '-' + id + '.jpg');
+        var payload = JSON.stringify({
+          id: id, input: samplePath, output: out, filter: filter, quality: 92
+        });
+        log('→ ' + filter + ' …');
+        if (window.nativeBridge && window.nativeBridge.dispatch) {
+          window.nativeBridge.dispatch(payload);
+        } else {
+          log('nativeBridge 未注入');
+        }
+      }
+
+      window.__init = function (p) {
+        samplePath = p || '';
+        renderButtons();
+        if (samplePath) {
+          var v = (window.nativeBridge && window.nativeBridge.version)
+            ? window.nativeBridge.version() : '?';
+          log('就绪，核心版本 ' + v + '\n' + samplePath);
+        } else {
+          log('示例图未就绪');
+        }
+      };
+
+      window.__onNativeResult = function (r) {
+        if (!r || !r.ok) {
+          log('失败: ' + (r && r.error ? r.error : 'unknown'));
+          return;
+        }
+        var t = r.timings;
+        log(t.filter + ' ' + t.width + 'x' + t.height +
+            '  decode=' + t.decodeMs + 'ms process=' + t.processMs +
+            'ms encode=' + t.encodeMs + 'ms total=' + t.totalMs + 'ms');
+      };
+    })();
+  </script>
+</body>
+</html>

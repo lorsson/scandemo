@@ -1,0 +1,68 @@
+{
+  "expo": {
+    "name": "myapp",
+    "slug": "myapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 28
+          }
+        }
+      ],
+      "expo-asset",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "允许 $(PRODUCT_NAME) 使用相机拍摄文档"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许 $(PRODUCT_NAME) 访问相册以导入文档"
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "允许 $(PRODUCT_NAME) 将扫描件保存到相册"
+        }
+      ],
+      "expo-sharing"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.scandemo",
+      "infoPlist": {
+        "NSCameraUsageDescription": "本应用需要使用相机拍摄文档进行扫描",
+        "NSPhotoLibraryUsageDescription": "本应用需要访问相册以导入待扫描的图片",
+        "NSPhotoLibraryAddUsageDescription": "本应用需要将扫描件保存到相册"
+      }
+    },
+    "android": {
+      "package": "com.example.scandemo",
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

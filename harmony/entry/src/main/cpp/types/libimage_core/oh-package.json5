@@ -1,0 +1,6 @@
+{
+  "name": "libimage_core.so",
+  "version": "1.0.0",
+  "description": "Type definitions for the shared C++ image core",
+  "types": "./index.d.ts"
+}
