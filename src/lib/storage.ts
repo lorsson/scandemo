@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { isFilterKey } from './filters';
+import { t } from './i18n';
 import {
   deletePageFiles,
   importPages,
@@ -71,7 +72,7 @@ function sanitizeDoc(value: unknown): ScanDoc | null {
 
   return {
     id: raw.id,
-    title: typeof raw.title === 'string' ? raw.title : '扫描文档',
+    title: typeof raw.title === 'string' ? raw.title : t('defaultScanTitle'),
     pages,
     createdAt,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : createdAt,

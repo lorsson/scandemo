@@ -10,6 +10,7 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useI18n } from '../lib/i18n';
 import { theme } from '../theme';
 
 type Props = {
@@ -23,6 +24,7 @@ export default function CameraScreen({ onCaptured, onCancel, onPickGallery }: Pr
   const cameraRef = useRef<CameraView>(null);
   const [capturing, setCapturing] = useState(false);
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
 
   const handleShoot = async () => {
     if (!cameraRef.current || capturing) return;
@@ -33,10 +35,7 @@ export default function CameraScreen({ onCaptured, onCancel, onPickGallery }: Pr
         onCaptured(pic.uri);
       }
     } catch {
-      Alert.alert(
-        '拍照失败',
-        '当前设备/模拟器可能没有可用相机。可以使用「导入图片」或「示例文档」。',
-      );
+      Alert.alert(t('captureFailedTitle'), t('captureFailedBody'));
     } finally {
       setCapturing(false);
     }
@@ -54,13 +53,13 @@ export default function CameraScreen({ onCaptured, onCancel, onPickGallery }: Pr
     return (
       <View style={styles.center}>
         <Text style={styles.permIcon}>📷</Text>
-        <Text style={styles.permTitle}>需要相机权限</Text>
-        <Text style={styles.permHint}>用于拍摄文档进行扫描</Text>
+        <Text style={styles.permTitle}>{t('cameraPermissionTitle')}</Text>
+        <Text style={styles.permHint}>{t('cameraPermissionHint')}</Text>
         <Pressable style={styles.permBtn} onPress={requestPermission}>
-          <Text style={styles.permBtnText}>授予权限</Text>
+          <Text style={styles.permBtnText}>{t('grantPermission')}</Text>
         </Pressable>
         <Pressable onPress={onCancel} style={styles.permCancel}>
-          <Text style={styles.permCancelText}>返回</Text>
+          <Text style={styles.permCancelText}>{t('back')}</Text>
         </Pressable>
       </View>
     );
@@ -74,19 +73,19 @@ export default function CameraScreen({ onCaptured, onCancel, onPickGallery }: Pr
         <Pressable hitSlop={12} style={styles.roundBtn} onPress={onCancel}>
           <Text style={styles.roundIcon}>✕</Text>
         </Pressable>
-        <Text style={styles.topTitle}>拍摄文档</Text>
+        <Text style={styles.topTitle}>{t('scanDocumentTitle')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <View pointerEvents="none" style={styles.frameWrap}>
         <View style={styles.frame} />
-        <Text style={styles.frameHint}>将文档置于框内</Text>
+        <Text style={styles.frameHint}>{t('frameHint')}</Text>
       </View>
 
       <View style={[styles.bottomBar, { bottom: 16 + insets.bottom }]}>
         <Pressable style={styles.sideBtn} onPress={onPickGallery}>
           <Text style={styles.sideIcon}>🖼️</Text>
-          <Text style={styles.sideLabel}>相册</Text>
+          <Text style={styles.sideLabel}>{t('library')}</Text>
         </Pressable>
 
         <Pressable

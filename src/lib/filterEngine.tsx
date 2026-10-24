@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { isZeroAdjust, type PageAdjust } from './filters';
+import { t } from './i18n';
 import type { FilterKey } from '../types';
 
 /**
@@ -87,7 +88,7 @@ function handleMessage(raw: string) {
     }
     entry.resolve(msg.dataUrl);
   } else {
-    entry.reject(new Error(msg.error || '图片处理失败'));
+    entry.reject(new Error(msg.error || t('errorImageProcessing')));
   }
 }
 
@@ -99,14 +100,17 @@ async function runInEngine(
   await Promise.race([
     ready,
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('滤镜引擎启动超时')), ENGINE_TIMEOUT),
+      setTimeout(
+        () => reject(new Error(t('errorEngineTimeout'))),
+        ENGINE_TIMEOUT,
+      ),
     ),
   ]);
 
   const sendPost = post;
   const sendInject = inject;
   if (!sendPost && !sendInject) {
-    throw new Error('滤镜引擎未就绪');
+    throw new Error(t('errorEngineNotReady'));
   }
 
   return new Promise<string>((resolve, reject) => {
@@ -119,7 +123,7 @@ async function runInEngine(
 
     const timer = setTimeout(() => {
       pending.delete(id);
-      reject(new Error('图片处理超时'));
+      reject(new Error(t('errorProcessingTimeout')));
     }, 30000);
     pending.set(id, { resolve, reject, timer, label, start: Date.now() });
 

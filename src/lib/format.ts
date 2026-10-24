@@ -1,9 +1,14 @@
+import { t } from './i18n';
+
 /**
  * 从图片地址推导默认文档名：取文件名、去掉扩展名。
  * 优先用相册返回的 filename（content:// / ph:// 也能拿到真实名字），
  * 拿不到才退回 URI 最后一段。
  */
-export function titleFromUri(uri: string, fallback = '扫描文档'): string {
+export function titleFromUri(
+  uri: string,
+  fallback = t('defaultScanTitle'),
+): string {
   const path = decodeURIComponent(uri.split('?')[0] ?? '');
   const base = path.slice(path.lastIndexOf('/') + 1);
   const name = base.replace(/\.[a-z0-9]{1,8}$/i, '').trim();

@@ -12,9 +12,10 @@ import {
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useI18n } from '../lib/i18n';
 import { theme } from '../theme';
 import type { FilterKey, Rotation } from '../types';
-import { FILTER_LABELS } from '../types';
+import { filterLabel } from '../types';
 import { SCAN_FILTERS } from '../lib/filters';
 import { prepareBase, readBase64, rotateImage } from '../lib/imagePipeline';
 import { filterWithCanvas } from '../lib/filterEngine';
@@ -69,6 +70,7 @@ export default function EditorScreen({
   // 未旋转的预处理图；旋转总是从它重来，避免多次编码累积损失
   const preparedRef = useRef<string | null>(null);
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
 
   // 原生模块（development build）优先；Expo Go 里自动退回 WebView Canvas
   const runFilter = useCallback(async (uri: string, key: FilterKey) => {
@@ -96,13 +98,13 @@ export default function EditorScreen({
           setProcessing(true); // 接下来滤镜 effect 会接手，先把遮罩亮起来
         }
       } catch {
-        if (!cancelled) setError('图片读取失败');
+        if (!cancelled) setError(t('imageReadFailedShort'));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [sourceUri, maxDim, initialRotation]);
+  }, [sourceUri, maxDim, initialRotation, t]);
 
   // 滤镜预览
   useEffect(() => {
@@ -121,7 +123,11 @@ export default function EditorScreen({
         }
       } catch (e) {
         if (!cancelled && myReq === reqId.current) {
-          setError(`滤镜处理失败：${(e as Error)?.message ?? ''}`);
+          setError(
+            t('filterFailed', {
+              message: (e as Error)?.message ?? t('unknownError'),
+            }),
+          );
         }
       } finally {
         if (!cancelled) setProcessing(false);
@@ -130,7 +136,7 @@ export default function EditorScreen({
     return () => {
       cancelled = true;
     };
-  }, [currentUri, filter, runFilter]);
+  }, [currentUri, filter, runFilter, t]);
 
   const handleSelectFilter = (key: FilterKey) => {
     if (key === filter) return;
@@ -152,7 +158,7 @@ export default function EditorScreen({
       setRotation(nextRotation);
       setCurrentUri(rotated);
     } catch {
-      setError('旋转失败');
+      setError(t('rotationFailed'));
     }
   };
 
@@ -185,7 +191,7 @@ export default function EditorScreen({
       await onSave({ base64: b64, filter, title, rotation });
     } catch {
       setSaving(false);
-      setError('保存失败');
+      setError(t('saveFailedTitle'));
     }
   };
 
@@ -200,14 +206,14 @@ export default function EditorScreen({
     <View style={styles.root}>
       <View style={[styles.topBar, { paddingTop: 12 + insets.top }]}>
         <Pressable hitSlop={12} onPress={onCancel} style={styles.topBtn}>
-          <Text style={styles.topBtnText}>取消</Text>
+          <Text style={styles.topBtnText}>{t('cancel')}</Text>
         </Pressable>
         <Text style={styles.topTitle} numberOfLines={1}>
           {title}
         </Text>
         <Pressable hitSlop={12} onPress={handleSave} style={styles.topBtn} disabled={saving || !currentUri}>
           <Text style={[styles.topBtnText, styles.saveText]}>
-            {saving ? '保存中' : '保存'}
+            {saving ? t('savingLabel') : t('save')}
           </Text>
         </Pressable>
       </View>
@@ -235,7 +241,9 @@ export default function EditorScreen({
         {((processing && filter !== 'original') || saving) && (
           <View style={styles.overlay}>
             <ActivityIndicator color="#fff" />
-            <Text style={styles.overlayText}>{saving ? '保存中…' : '处理中…'}</Text>
+            <Text style={styles.overlayText}>
+              {saving ? t('savingEllipsis') : t('processingEllipsis')}
+            </Text>
           </View>
         )}
         {error && <Text style={styles.error}>{error}</Text>}
@@ -244,14 +252,14 @@ export default function EditorScreen({
       <View style={[styles.toolbar, { paddingBottom: 18 + insets.bottom }]}>
         <View style={styles.rotateRow}>
           <Pressable style={styles.rotateBtn} onPress={() => handleRotate(270)}>
-            <Text style={styles.rotateText}>↺ 左转</Text>
+            <Text style={styles.rotateText}>↺ {t('leftShort')}</Text>
           </Pressable>
           <Pressable style={styles.rotateBtn} onPress={() => handleRotate(90)}>
-            <Text style={styles.rotateText}>↻ 右转</Text>
+            <Text style={styles.rotateText}>↻ {t('rightShort')}</Text>
           </Pressable>
         </View>
 
-        <Text style={styles.filterLabel}>滤镜</Text>
+        <Text style={styles.filterLabel}>{t('filter')}</Text>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -266,7 +274,7 @@ export default function EditorScreen({
                 style={[styles.filterChip, active && styles.filterChipActive]}
               >
                 <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
-                  {FILTER_LABELS[key]}
+                  {filterLabel(key)}
                 </Text>
               </Pressable>
             );
@@ -275,38 +283,35 @@ export default function EditorScreen({
 
         {showPageTools && (
           <>
-            <Text style={styles.filterLabel}>单页工具</Text>
+            <Text style={styles.filterLabel}>{t('pageTools')}</Text>
             <View style={styles.pageToolRow}>
               <Pressable
                 style={styles.pageToolBtn}
                 onPress={() =>
-                  Alert.alert(
-                    '切边（接口已预留）',
-                    '将调用 ONNX 模型识别文档四角，再做透视校正。当前版本没有打包模型；' +
-                      '检测/切边接口见 src/lib/documentDetection.ts，结果保存在 PdfPage.cropQuad。',
-                  )
+                  Alert.alert(t('cropReservedTitle'), t('cropReservedBody'))
                 }
               >
-                <Text style={styles.pageToolText}>✂ 切边</Text>
+                <Text style={styles.pageToolText}>✂ {t('crop')}</Text>
               </Pressable>
               <Pressable
                 style={styles.pageToolBtn}
                 onPress={() =>
                   Alert.alert(
-                    '手动批注（接口已预留）',
-                    '批注会以归一化坐标保存在 PdfPage.annotations，' +
-                      '渲染层（Canvas / 原生合成）尚未实现。',
+                    t('annotateReservedTitle'),
+                    t('annotateReservedBody'),
                   )
                 }
               >
-                <Text style={styles.pageToolText}>✎ 批注</Text>
+                <Text style={styles.pageToolText}>✎ {t('annotate')}</Text>
               </Pressable>
               <Pressable style={styles.pageToolBtn} onPress={handleResetOriginal}>
-                <Text style={styles.pageToolText}>↺ 恢复原图</Text>
+                <Text style={styles.pageToolText}>
+                  ↺ {t('resetToOriginal')}
+                </Text>
               </Pressable>
             </View>
             <Text style={styles.pageToolHint}>
-              保存后回到 PDF 页，再点「重新生成 PDF」。
+              {t('saveThenRegenerate')}
             </Text>
           </>
         )}

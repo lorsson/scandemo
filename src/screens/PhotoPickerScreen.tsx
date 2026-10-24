@@ -24,6 +24,7 @@ import {
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useI18n } from '../lib/i18n';
 import { theme } from '../theme';
 
 type Props = {
@@ -50,11 +51,13 @@ const PAGE_SIZE = 60;
  */
 export default function PhotoPickerScreen({
   limit,
-  title = '选择图片',
+  title,
   onCancel,
   onDone,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { t, tp } = useI18n();
+  const heading = title ?? t('selectImages');
   const { width } = useWindowDimensions();
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [selected, setSelected] = useState<MediaLibrary.Asset[]>([]);
@@ -295,12 +298,14 @@ export default function PhotoPickerScreen({
     <View style={styles.root}>
       <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
         <Pressable hitSlop={12} onPress={onCancel} style={styles.topBtn}>
-          <Text style={styles.topBtnText}>取消</Text>
+          <Text style={styles.topBtnText}>{t('cancel')}</Text>
         </Pressable>
         <View style={styles.topCenter}>
-          <Text style={styles.topTitle}>{title}</Text>
+          <Text style={styles.topTitle}>{heading}</Text>
           {selected.length > 0 && (
-            <Text style={styles.topSub}>已选 {selected.length} 张</Text>
+            <Text style={styles.topSub}>
+              {tp('selectedCount', selected.length)}
+            </Text>
           )}
         </View>
         <View style={styles.topBtn} />
@@ -309,33 +314,33 @@ export default function PhotoPickerScreen({
       {status === 'loading' && (
         <View style={styles.center}>
           <ActivityIndicator color={theme.primary} />
-          <Text style={styles.hint}>正在读取相册…</Text>
+          <Text style={styles.hint}>{t('readingLibrary')}</Text>
         </View>
       )}
 
       {status === 'denied' && (
         <View style={styles.center}>
-          <Text style={styles.centerTitle}>没有相册访问权限</Text>
-          <Text style={styles.hint}>读取照片需要相册权限，可以在系统设置里开启。</Text>
+          <Text style={styles.centerTitle}>{t('libraryPermissionTitle')}</Text>
+          <Text style={styles.hint}>{t('libraryPermissionHint')}</Text>
           <Pressable style={styles.settingsBtn} onPress={() => void Linking.openSettings()}>
-            <Text style={styles.settingsText}>打开系统设置</Text>
+            <Text style={styles.settingsText}>{t('openSettings')}</Text>
           </Pressable>
         </View>
       )}
 
       {status === 'error' && (
         <View style={styles.center}>
-          <Text style={styles.centerTitle}>相册读取失败</Text>
+          <Text style={styles.centerTitle}>{t('libraryReadFailed')}</Text>
           <Pressable style={styles.settingsBtn} onPress={() => void loadFirstPage()}>
-            <Text style={styles.settingsText}>重试</Text>
+            <Text style={styles.settingsText}>{t('retry')}</Text>
           </Pressable>
         </View>
       )}
 
       {status === 'ready' && assets.length === 0 && (
         <View style={styles.center}>
-          <Text style={styles.centerTitle}>相册里还没有照片</Text>
-          <Text style={styles.hint}>先用相机拍几张再回来导入。</Text>
+          <Text style={styles.centerTitle}>{t('noPhotosTitle')}</Text>
+          <Text style={styles.hint}>{t('noPhotosHint')}</Text>
         </View>
       )}
 
@@ -373,7 +378,9 @@ export default function PhotoPickerScreen({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={
-                  picked ? `已选第 ${index + 1} 张` : '选择这张图片'
+                  picked
+                    ? t('selectedNth', { n: index + 1 })
+                    : t('selectThisImage')
                 }
                 accessibilityState={{ selected: picked }}
                 onPress={() => toggle(item)}
@@ -414,7 +421,7 @@ export default function PhotoPickerScreen({
             onPress={() => setPreviewAt(0)}
             style={[styles.previewBtn, selected.length === 0 && styles.disabled]}
           >
-            <Text style={styles.previewBtnText}>预览</Text>
+            <Text style={styles.previewBtnText}>{t('preview')}</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -424,8 +431,8 @@ export default function PhotoPickerScreen({
           >
             <Text style={styles.doneText}>
               {selected.length > 0
-                ? `完成 (${selected.length})`
-                : `最多可选 ${limit} 张`}
+                ? t('doneWithCount', { count: selected.length })
+                : t('maxSelectable', { count: limit })}
             </Text>
           </Pressable>
         </View>
@@ -435,7 +442,7 @@ export default function PhotoPickerScreen({
         <View style={styles.preview}>
           <View style={[styles.previewTop, { paddingTop: insets.top + 10 }]}>
             <Pressable hitSlop={12} onPress={() => setPreviewAt(null)}>
-              <Text style={styles.previewClose}>关闭</Text>
+              <Text style={styles.previewClose}>{t('close')}</Text>
             </Pressable>
             <Text style={styles.previewIndex}>
               {previewAt + 1} / {selected.length}
@@ -470,7 +477,7 @@ export default function PhotoPickerScreen({
               <Text style={styles.previewBadgeText}>{previewAt + 1}</Text>
             </View>
             <Pressable style={styles.removeBtn} onPress={removePreviewed}>
-              <Text style={styles.removeText}>取消选择</Text>
+              <Text style={styles.removeText}>{t('deselect')}</Text>
             </Pressable>
           </View>
         </View>

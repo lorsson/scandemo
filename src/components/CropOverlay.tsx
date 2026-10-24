@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, View } from 'react-native';
 
+import { useI18n } from '../lib/i18n';
 import type { DocumentQuad, NormalizedPoint } from '../types';
 
 /**
@@ -214,6 +215,7 @@ export default function CropOverlay({
   onChange,
   onActiveHandle,
 }: Props) {
+  const { t } = useI18n();
   const quadRef = useRef(quad);
   const sizeRef = useRef({ width, height });
   const insetRef = useRef(inset);
@@ -337,7 +339,7 @@ export default function CropOverlay({
       style={StyleSheet.absoluteFill}
       {...responder.panHandlers}
       accessibilityRole="adjustable"
-      accessibilityLabel="裁剪区域，拖动四个角点或四条边的中点调整"
+      accessibilityLabel={t('cropA11y')}
     >
       {EDGES.map((edge) => {
         const a = px(quad[edge.a]);

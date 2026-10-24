@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useI18n } from '../lib/i18n';
 import { theme } from '../theme';
 import type { PdfDoc } from '../types';
 
@@ -39,6 +40,7 @@ export default function PdfReaderScreen({
   onEditPage,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
   const pages = doc.pages;
 
   const ref = useRef<ScrollViewInstance>(null);
@@ -86,7 +88,7 @@ export default function PdfReaderScreen({
     <View style={styles.root}>
       <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
         <Pressable hitSlop={12} onPress={onBack} style={styles.topBtn}>
-          <Text style={styles.topBtnText}>返回</Text>
+          <Text style={styles.topBtnText}>{t('back')}</Text>
         </Pressable>
         <View style={styles.topTitleWrap}>
           <Text style={styles.topTitle} numberOfLines={1}>
@@ -94,15 +96,15 @@ export default function PdfReaderScreen({
           </Text>
         </View>
         <Pressable hitSlop={10} onPress={onEditLayout} style={styles.layoutBtn}>
-          <Text style={styles.layoutBtnText}>✎ 排版</Text>
+          <Text style={styles.layoutBtnText}>✎ {t('layout')}</Text>
         </Pressable>
       </View>
 
       {pages.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyIcon}>📄</Text>
-          <Text style={styles.emptyText}>这个文档还没有页面</Text>
-          <Text style={styles.emptyHint}>先去「✎ 排版」添加图片。</Text>
+          <Text style={styles.emptyText}>{t('readerEmpty')}</Text>
+          <Text style={styles.emptyHint}>{t('readerEmptyHint')}</Text>
         </View>
       ) : (
         <ScrollView
@@ -136,17 +138,19 @@ export default function PdfReaderScreen({
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 10 }]}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`编辑第 ${index + 1} 页`}
+            accessibilityLabel={t('editPageTitle', { n: index + 1 })}
             style={({ pressed }) => [
               styles.editBtn,
               pressed && styles.pressed,
             ]}
             onPress={() => current && onEditPage(current.id)}
           >
-            <Text style={styles.editBtnText}>✎ 编辑本页 · 第 {index + 1} 页</Text>
+            <Text style={styles.editBtnText}>
+              {t('editThisPage', { n: index + 1 })}
+            </Text>
           </Pressable>
           {dirty && (
-            <Text style={styles.dirtyHint}>页面已调整，PDF 是旧版；去排版处重新生成</Text>
+            <Text style={styles.dirtyHint}>{t('readerDirty')}</Text>
           )}
 
           <ScrollView
@@ -160,7 +164,7 @@ export default function PdfReaderScreen({
                 <Pressable
                   key={page.id}
                   accessibilityRole="button"
-                  accessibilityLabel={`第 ${i + 1} 页`}
+                  accessibilityLabel={t('pageN', { n: i + 1 })}
                   accessibilityState={{ selected: active }}
                   onPress={() => scrollToPage(i)}
                   style={[

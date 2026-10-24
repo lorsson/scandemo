@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "myapp",
+    "name": "Scan Demo",
     "slug": "myapp",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,30 +19,50 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "允许 $(PRODUCT_NAME) 使用相机拍摄文档"
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera to scan documents."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "允许 $(PRODUCT_NAME) 访问相册以导入文档"
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photo library to import documents."
         }
       ],
       [
         "expo-media-library",
         {
-          "savePhotosPermission": "允许 $(PRODUCT_NAME) 将扫描件保存到相册"
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save scanned documents to your photo library."
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": [
+              "en",
+              "zh-Hans"
+            ],
+            "android": [
+              "en",
+              "zh-Hans"
+            ]
+          }
+        }
+      ],
+      "expo-font"
     ],
+    "locales": {
+      "en": "./locales/en.json",
+      "zh-Hans": "./locales/zh-Hans.json"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.example.scandemo",
       "infoPlist": {
-        "NSCameraUsageDescription": "本应用需要使用相机拍摄文档进行扫描",
-        "NSPhotoLibraryUsageDescription": "本应用需要访问相册以导入待扫描的图片",
-        "NSPhotoLibraryAddUsageDescription": "本应用需要将扫描件保存到相册"
+        "NSCameraUsageDescription": "Scan Demo uses the camera to scan documents.",
+        "NSPhotoLibraryUsageDescription": "Scan Demo accesses your photo library so you can import images to scan.",
+        "NSPhotoLibraryAddUsageDescription": "Scan Demo saves scanned documents to your photo library."
       }
     },
     "android": {

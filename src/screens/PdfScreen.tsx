@@ -30,8 +30,9 @@ import {
   savePageEdit,
 } from '../lib/pdfStorage';
 import { SCAN_FILTERS } from '../lib/filters';
+import { t, useI18n } from '../lib/i18n';
 import { shadow, theme } from '../theme';
-import { FILTER_LABELS } from '../types';
+import { filterLabel } from '../types';
 import type { DocPage, FilterKey, PdfDoc } from '../types';
 
 type Props = {
@@ -52,7 +53,7 @@ type Busy =
 
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : '未知错误';
+  return error instanceof Error ? error.message : t('unknownError');
 }
 
 /** 页面改动时间：至少比上一次生成时间晚 1ms，保证 dirty 一定成立 */
@@ -67,6 +68,7 @@ function nextGeneratedAt(updatedAt: number): number {
 
 export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }: Props) {
   const insets = useSafeAreaInsets();
+  const { t: tr, tp: trp } = useI18n();
   const [pages, setPages] = useState<DocPage[]>(doc.pages);
   const [pdfUri, setPdfUri] = useState<string | null>(doc.uri);
   const [generatedAt, setGeneratedAt] = useState<number | null>(doc.generatedAt);
@@ -133,10 +135,10 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
       onBack();
       return;
     }
-    Alert.alert('正在处理', '当前操作还没有完成。', [
-      { text: '继续等待', style: 'cancel' },
+    Alert.alert(tr('busyTitle'), tr('busyBody'), [
+      { text: tr('keepWaiting'), style: 'cancel' },
       {
-        text: '取消并返回',
+        text: tr('discardAndLeave'),
         style: 'destructive',
         onPress: () => {
           abortRef.current?.abort();
@@ -151,15 +153,15 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
     const remaining = limits.pageLimit - pages.length;
     if (remaining <= 0) {
       Alert.alert(
-        '已达页数上限',
-        `本机单次最多 ${limits.pageLimit} 页。更多页面请拆成多个 PDF。`,
+        tr('pageLimitTitle'),
+        tr('pageLimitPdfBody', { limit: limits.pageLimit }),
       );
       return;
     }
 
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('未获得相册权限', '请在系统设置中允许访问相册。');
+      Alert.alert(tr('photoPermissionAlertTitle'), tr('photoPermissionAlertBody'));
       return;
     }
 
@@ -191,7 +193,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
       applyPages([...pages, ...added]);
     } catch (error) {
       if (!isAbortError(error)) {
-        Alert.alert('导入失败', errorMessage(error));
+        Alert.alert(tr('importFailedTitle'), errorMessage(error));
       }
     } finally {
       abortRef.current = null;
@@ -210,10 +212,10 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
 
   const handleRemove = (page: DocPage, index: number) => {
     if (busy) return;
-    Alert.alert('移除页面', `确定移除第 ${index + 1} 页吗？`, [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(tr('removePageTitle'), tr('removePageBody', { n: index + 1 }), [
+      { text: tr('cancel'), style: 'cancel' },
       {
-        text: '移除',
+        text: tr('remove'),
         style: 'destructive',
         onPress: () => {
           applyPages(pages.filter((item) => item.id !== page.id));
@@ -252,7 +254,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
       }
     } catch (error) {
       if (!isAbortError(error)) {
-        Alert.alert('应用失败', errorMessage(error));
+        Alert.alert(tr('applyFailedTitle'), errorMessage(error));
       }
     } finally {
       abortRef.current = null;
@@ -263,15 +265,15 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
 
   const handleApplyAll = () => {
     if (busy || pages.length === 0) return;
-    const label = FILTER_LABELS[defaultFilter];
+    const label = filterLabel(defaultFilter);
     Alert.alert(
-      '应用到全部页面',
+      tr('applyAllTitle'),
       defaultFilter === 'original'
-        ? `将把 ${pages.length} 页全部恢复为原图（旋转保留），手动调整会被覆盖。`
-        : `将对 ${pages.length} 页执行「${label}」，手动调整过的页面会被覆盖。`,
+        ? tr('applyAllOriginalBody', { count: pages.length })
+        : trp('applyAllFilterBody', pages.length, { filter: label }),
       [
-        { text: '取消', style: 'cancel' },
-        { text: '开始', onPress: () => void runApplyAll() },
+        { text: tr('cancel'), style: 'cancel' },
+        { text: tr('start'), onPress: () => void runApplyAll() },
       ],
     );
   };
@@ -305,10 +307,13 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
         generatedAt: generated,
         updatedAt,
       });
-      Alert.alert('PDF 已生成', `${pages.length} 页，可点击「分享 PDF」导出。`);
+      Alert.alert(
+        tr('pdfCreatedTitle'),
+        trp('pdfCreatedBody', pages.length),
+      );
     } catch (error) {
       if (!isAbortError(error)) {
-        Alert.alert('生成失败', errorMessage(error));
+        Alert.alert(tr('createFailedTitle'), errorMessage(error));
       }
     } finally {
       abortRef.current = null;
@@ -321,7 +326,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
     try {
       const available = await Sharing.isAvailableAsync();
       if (!available) {
-        Alert.alert('无法分享', '当前设备不支持系统分享。');
+        Alert.alert(tr('shareUnavailableTitle'), tr('shareUnavailableBody'));
         return;
       }
       await Sharing.shareAsync(pdfUri, {
@@ -330,7 +335,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
         dialogTitle: doc.title,
       });
     } catch (error) {
-      Alert.alert('分享失败', errorMessage(error));
+      Alert.alert(tr('shareFailedTitle'), errorMessage(error));
     }
   };
 
@@ -344,21 +349,21 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
 
   const primaryLabel = dirty
     ? pdfUri
-      ? '重新生成 PDF'
-      : '生成 PDF'
-    : '分享 PDF';
+      ? tr('regeneratePdf')
+      : tr('createPdf')
+    : tr('sharePdf');
 
   return (
     <View style={styles.root}>
       <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
         <Pressable hitSlop={12} onPress={handleBack} style={styles.topBtn}>
-          <Text style={styles.topBtnText}>返回</Text>
+          <Text style={styles.topBtnText}>{tr('back')}</Text>
         </Pressable>
         <Text style={styles.topTitle} numberOfLines={1}>
           {doc.title}
         </Text>
         <View style={styles.topRight}>
-          <Text style={styles.topMeta}>{pages.length} 页</Text>
+          <Text style={styles.topMeta}>{trp('pageCount', pages.length)}</Text>
           {pages.length > 0 && (
             <Pressable
               hitSlop={8}
@@ -368,7 +373,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.readBtnText}>阅读</Text>
+              <Text style={styles.readBtnText}>{tr('read')}</Text>
             </Pressable>
           )}
         </View>
@@ -384,7 +389,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
         ListHeaderComponent={
           <View>
             <View style={styles.filterCard}>
-              <Text style={styles.filterTitle}>导入时自动执行</Text>
+              <Text style={styles.filterTitle}>{tr('applyOnImport')}</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -409,14 +414,14 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
                       <Text
                         style={[styles.chipText, active && styles.chipTextActive]}
                       >
-                        {FILTER_LABELS[key]}
+                        {filterLabel(key)}
                       </Text>
                     </Pressable>
                   );
                 })}
               </ScrollView>
               <Text style={styles.filterHint}>
-                新导入的图片会自动套用该算法；单页仍可点 ✎ 单独调整。
+                {tr('applyOnImportHint')}
               </Text>
               {pages.length > 0 && (
                 <Pressable
@@ -431,8 +436,10 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
                 >
                   <Text style={styles.applyAllText}>
                     {defaultFilter === 'original'
-                      ? '↺ 全部恢复原图'
-                      : `对整个文档执行「${FILTER_LABELS[defaultFilter]}」`}
+                      ? tr('restoreAllOriginals')
+                      : tr('applyFilterToDocument', {
+                          filter: filterLabel(defaultFilter),
+                        })}
                   </Text>
                 </Pressable>
               )}
@@ -451,41 +458,44 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
                 ]}
               >
                 {pages.length === 0
-                  ? '还没有页面，先添加图片。'
+                  ? tr('noPagesAddImages')
                   : dirty
                     ? pdfUri
-                      ? '页面已调整，当前 PDF 是旧版本；分享前请重新生成。'
-                      : '按 ↑ ↓ 调整顺序，然后生成 PDF。'
-                    : `PDF 已生成 · ${pages.length} 页`}
+                      ? tr('pagesOutOfDate')
+                      : tr('reorderThenCreate')
+                    : tr('pdfUpToDate', { count: pages.length })}
               </Text>
             </View>
             {pages.length > 0 && (
-              <Text style={styles.listHint}>共 {pages.length} 页 · 可上下调整顺序</Text>
+              <Text style={styles.listHint}>
+                {tr('reorderHint', { count: pages.length })}
+              </Text>
             )}
           </View>
         }
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>📄</Text>
-            <Text style={styles.emptyTitle}>把照片变成 PDF</Text>
+            <Text style={styles.emptyTitle}>{tr('emptyPdfTitle')}</Text>
             <Text style={styles.emptyHint}>
-              支持多选、调整顺序。导入时会自动执行上方选中的算法
-              （当前：{FILTER_LABELS[defaultFilter]}），之后仍可单页调整。
+              {tr('emptyPdfHint', { filter: filterLabel(defaultFilter) })}
             </Text>
             <Pressable style={styles.emptyBtn} onPress={handleAdd}>
-              <Text style={styles.emptyBtnText}>选择图片</Text>
+              <Text style={styles.emptyBtnText}>{tr('selectImages')}</Text>
             </Pressable>
           </View>
         }
         ListFooterComponent={
           pages.length > 0 ? (
             <Text style={styles.footerHint}>
-              点 ✎ 可对单页做增强 / 旋转（切边、批注为预留接口）。
-              {limits.totalMB
-                ? `本机内存约 ${(limits.totalMB / 1024).toFixed(1)} GB，`
-                : ''}
-              单次最多 {limits.pageLimit} 页；页数越多，单页会自动压缩
-              （≤8 页 1800px · ≤25 页 1500px · 更多 1200px，低内存机型再降一档）。
+              {tr('pdfFooterHint', {
+                memory: limits.totalMB
+                  ? tr('memoryHint', {
+                      gb: (limits.totalMB / 1024).toFixed(1),
+                    })
+                  : '',
+                limit: limits.pageLimit,
+              })}
             </Text>
           ) : undefined
         }
@@ -493,37 +503,41 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
           <View style={styles.pageCard}>
             <Image source={{ uri: item.thumbUri }} style={styles.thumb} resizeMode="cover" />
             <View style={styles.pageMeta}>
-              <Text style={styles.pageTitle}>第 {index + 1} 页</Text>
+              <Text style={styles.pageTitle}>
+                {tr('pageN', { n: index + 1 })}
+              </Text>
               <Text style={styles.pageSub}>
                 {item.filter === 'original'
-                  ? '原图'
-                  : `${FILTER_LABELS[item.filter]}模式`}
-                {item.rotation ? ` · 旋转 ${item.rotation}°` : ''}
+                  ? tr('original')
+                  : tr('filterMode', { filter: filterLabel(item.filter) })}
+                {item.rotation
+                  ? ` · ${tr('rotated', { degrees: item.rotation })}`
+                  : ''}
               </Text>
             </View>
             <View style={styles.pageActions}>
               <IconButton
                 label="↑"
-                accessibilityLabel={`第 ${index + 1} 页上移`}
+                accessibilityLabel={tr('movePageUp', { n: index + 1 })}
                 disabled={index === 0 || !!busy}
                 onPress={() => handleMove(index, -1)}
               />
               <IconButton
                 label="↓"
-                accessibilityLabel={`第 ${index + 1} 页下移`}
+                accessibilityLabel={tr('movePageDown', { n: index + 1 })}
                 disabled={index === pages.length - 1 || !!busy}
                 onPress={() => handleMove(index, 1)}
               />
               <IconButton
                 label="✎"
-                accessibilityLabel={`编辑第 ${index + 1} 页`}
+                accessibilityLabel={tr('editPageTitle', { n: index + 1 })}
                 tone="crop"
                 disabled={!!busy}
                 onPress={() => onEditPage(item.id)}
               />
               <IconButton
                 label="✕"
-                accessibilityLabel={`移除第 ${index + 1} 页`}
+                accessibilityLabel={tr('removePageN', { n: index + 1 })}
                 tone="danger"
                 disabled={!!busy}
                 onPress={() => handleRemove(item, index)}
@@ -543,7 +557,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
           onPress={handleAdd}
           disabled={!!busy || pages.length >= limits.pageLimit}
         >
-          <Text style={styles.addBtnText}>＋ 添加图片</Text>
+          <Text style={styles.addBtnText}>{tr('addImagesPlus')}</Text>
         </Pressable>
         <Pressable
           style={({ pressed }) => [
@@ -564,14 +578,14 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
             <ActivityIndicator size="large" color={theme.primary} />
             <Text style={styles.overlayTitle}>
               {busy.kind === 'import'
-                ? '正在导入图片'
+                ? tr('importingImages')
                 : busy.kind === 'apply'
-                  ? '正在应用算法'
-                  : '正在生成 PDF'}
+                  ? tr('applyingFilter')
+                  : tr('creatingPdfTitle')}
             </Text>
             <Text style={styles.overlaySub}>
               {busy.kind === 'generate' && busy.done >= busy.total
-                ? '正在排版输出…'
+                ? tr('layoutWriting')
                 : `${busy.done} / ${busy.total}`}
             </Text>
             <View style={styles.progressTrack}>
@@ -589,7 +603,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }:
               onPress={() => abortRef.current?.abort()}
               style={styles.cancelBtn}
             >
-              <Text style={styles.cancelText}>取消</Text>
+              <Text style={styles.cancelText}>{tr('cancel')}</Text>
             </Pressable>
           </View>
         </View>

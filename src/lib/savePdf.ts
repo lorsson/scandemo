@@ -3,6 +3,8 @@ import { Directory, File } from 'expo-file-system';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
+import { t } from './i18n';
+
 /**
  * 把已生成的 PDF 交给用户保存。
  *
@@ -33,7 +35,7 @@ export function pdfFileName(title: string): string {
     .replace(/[\\/:*?"<>|]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return `${base || '文档'}.pdf`;
+  return `${base || t('defaultDocumentName')}.pdf`;
 }
 
 /**

@@ -2,12 +2,13 @@
  * 扫描算法的唯一配置入口。
  *
  * 以后增加/删除算法时只需要：
- *   1. 在 FilterKey 与 FILTER_LABELS 里加/删一项；
+ *   1. 在 FilterKey 与 FILTER_LABEL_KEYS 里加/删一项（文案加到 i18n.ts）；
  *   2. 在 SCAN_FILTERS 里调整顺序（数组顺序就是界面顺序，删掉即隐藏）；
  *   3. 在 C++（image_core.cpp）与 Canvas（filterEngine.tsx）补同名实现；
  *   4. 各平台桥的 filterId 映射补一行。
  * 界面上不再出现任何写死的算法列表。
  */
+import { t, type MessageKey } from './i18n';
 
 export type FilterKey =
   | 'original'
@@ -22,19 +23,26 @@ export type FilterKey =
   | 'bw'
   | 'invert';
 
-export const FILTER_LABELS: Record<FilterKey, string> = {
-  original: '原图',
-  shadow: '去阴影',
-  dehand: '去除手写',
-  hd: '高清',
-  brighten: '增亮',
-  sharpen: '增强锐化',
-  inksave: '省墨',
-  enhance: '增强',
-  gray: '灰度',
-  bw: '黑白',
-  invert: '反色',
+export const FILTER_LABEL_KEYS: Record<FilterKey, MessageKey> = {
+  original: 'filterOriginal',
+  shadow: 'filterShadow',
+  dehand: 'filterDehand',
+  hd: 'filterHd',
+  brighten: 'filterBrighten',
+  sharpen: 'filterSharpen',
+  inksave: 'filterInksave',
+  enhance: 'filterEnhance',
+  gray: 'filterGray',
+  bw: 'filterBw',
+  invert: 'filterInvert',
 };
+
+/** 当前语言下的算法名称（模块级常量会固化语言，所以用函数） */
+export function filterLabel(key: FilterKey): string {
+  return t(FILTER_LABEL_KEYS[key]);
+}
+
+export const FILTER_KEYS = Object.keys(FILTER_LABEL_KEYS) as FilterKey[];
 
 /** 扫描编辑器里展示的算法（顺序即 UI 顺序；删除一项即可隐藏） */
 export const SCAN_FILTERS: readonly FilterKey[] = [
@@ -71,11 +79,15 @@ export const ZERO_ADJUST: PageAdjust = {
   detail: 0,
 };
 
-export const ADJUST_LABELS: Record<AdjustKey, string> = {
-  contrast: '对比度',
-  brightness: '亮度',
-  detail: '细节',
+export const ADJUST_LABEL_KEYS: Record<AdjustKey, MessageKey> = {
+  contrast: 'adjustContrast',
+  brightness: 'adjustBrightness',
+  detail: 'adjustDetail',
 };
+
+export function adjustLabel(key: AdjustKey): string {
+  return t(ADJUST_LABEL_KEYS[key]);
+}
 
 export const ADJUST_KEYS: readonly AdjustKey[] = [
   'contrast',
@@ -90,7 +102,7 @@ export const ADJUST_RANGE: Record<AdjustKey, { min: number; max: number }> = {
 };
 
 export function isFilterKey(value: unknown): value is FilterKey {
-  return typeof value === 'string' && value in FILTER_LABELS;
+  return typeof value === 'string' && value in FILTER_LABEL_KEYS;
 }
 
 function clampAdjust(key: AdjustKey, value: unknown): number {

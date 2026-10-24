@@ -2,7 +2,7 @@ import type { FilterKey, PageAdjust } from './lib/filters';
 
 // 算法清单与标签集中在 ./lib/filters.ts，这里只做转出，避免两处漂移
 export type { FilterKey } from './lib/filters';
-export { FILTER_LABELS } from './lib/filters';
+export { filterLabel } from './lib/filters';
 
 export type ScanDoc = {
   id: string;

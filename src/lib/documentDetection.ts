@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 /**
  * 文档边缘检测 / 透视切边——预留接口。
  *
@@ -87,7 +89,7 @@ export interface DocumentEdgeDetector {
 }
 
 function unavailable(): Error {
-  return new Error('文档边缘检测尚未接入（预留了 ONNX 接口）');
+  return new Error(t('errorOcrNotConnected'));
 }
 
 const unavailableDetector: DocumentEdgeDetector = {
@@ -178,7 +180,7 @@ export async function warpDocumentQuad(
   throwIfAborted(options.signal);
   if (!activeDetector.isAvailable()) throw unavailable();
   if (!activeDetector.warp) {
-    throw new Error('透视切边尚未实现：ONNX 检测已接入，但缺少 warp 步骤');
+    throw new Error(t('errorPerspectiveNotImplemented'));
   }
   return activeDetector.warp(uri, quad, options);
 }

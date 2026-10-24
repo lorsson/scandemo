@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useI18n, type MessageKey } from '../lib/i18n';
 import { theme } from '../theme';
 
 export type TabKey = 'home' | 'docs' | 'tools' | 'profile';
@@ -11,27 +12,32 @@ type IconName = ComponentProps<typeof Ionicons>['name'];
 
 type Item = {
   key: TabKey;
-  label: string;
+  labelKey: MessageKey;
   icon: IconName;
   activeIcon: IconName;
 };
 
 /** 左右各两个，中间的相机单独渲染成一个凸起的圆按钮 */
 const LEFT: Item[] = [
-  { key: 'home', label: '首页', icon: 'home-outline', activeIcon: 'home' },
+  { key: 'home', labelKey: 'tabHome', icon: 'home-outline', activeIcon: 'home' },
   {
     key: 'docs',
-    label: '全部文档',
+    labelKey: 'tabDocs',
     icon: 'documents-outline',
     activeIcon: 'documents',
   },
 ];
 
 const RIGHT: Item[] = [
-  { key: 'tools', label: '工具箱', icon: 'apps-outline', activeIcon: 'apps' },
+  {
+    key: 'tools',
+    labelKey: 'tabTools',
+    icon: 'apps-outline',
+    activeIcon: 'apps',
+  },
   {
     key: 'profile',
-    label: '我的',
+    labelKey: 'tabProfile',
     icon: 'person-outline',
     activeIcon: 'person',
   },
@@ -45,14 +51,16 @@ type Props = {
 
 export default function TabBar({ active, onChange, onScan }: Props) {
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
 
   const renderItem = (item: Item) => {
     const focused = active === item.key;
+    const label = t(item.labelKey);
     return (
       <Pressable
         key={item.key}
         accessibilityRole="button"
-        accessibilityLabel={item.label}
+        accessibilityLabel={label}
         accessibilityState={{ selected: focused }}
         style={styles.item}
         onPress={() => onChange(item.key)}
@@ -63,7 +71,7 @@ export default function TabBar({ active, onChange, onScan }: Props) {
           color={focused ? theme.primary : theme.subtext}
         />
         <Text style={[styles.label, focused && styles.labelActive]}>
-          {item.label}
+          {label}
         </Text>
       </Pressable>
     );
@@ -75,7 +83,7 @@ export default function TabBar({ active, onChange, onScan }: Props) {
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="相机"
+        accessibilityLabel={t('tabCamera')}
         style={styles.cameraSlot}
         onPress={onScan}
       >
@@ -83,7 +91,7 @@ export default function TabBar({ active, onChange, onScan }: Props) {
         <View style={styles.cameraBtn}>
           <Ionicons name="camera" size={26} color="#fff" />
         </View>
-        <Text style={styles.cameraLabel}>相机</Text>
+        <Text style={styles.cameraLabel}>{t('tabCamera')}</Text>
       </Pressable>
 
       {RIGHT.map(renderItem)}

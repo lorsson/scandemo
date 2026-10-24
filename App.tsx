@@ -29,6 +29,7 @@ import {
 } from './src/lib/storage';
 import { resolveBundledAsset } from './src/lib/imagePipeline';
 import { titleFromUri } from './src/lib/format';
+import { initI18n, t } from './src/lib/i18n';
 import { FilterEngineHost } from './src/lib/filterEngine';
 import { getPdfLimits, initPdfLimits } from './src/lib/pdfLimits';
 import {
@@ -90,6 +91,8 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // 先恢复语言再读数据：列表里的默认标题（“扫描文档”等）按当前语言生成
+      await initI18n();
       const [loadedDocs, loadedPdfs] = await Promise.all([loadDocs(), loadPdfs()]);
       if (!cancelled) {
         setDocs(loadedDocs);
@@ -155,15 +158,15 @@ export default function App() {
   const handleSample = async () => {
     try {
       const uri = await resolveBundledAsset(require('./assets/sample_doc.jpg'));
-      goScanEditor([uri], '示例文档');
+      goScanEditor([uri], t('sampleDocumentTitle'));
     } catch {
-      Alert.alert('加载示例失败', '请改用拍照或相册导入。');
+      Alert.alert(t('sampleLoadFailedTitle'), t('sampleLoadFailedBody'));
     }
   };
 
   /** 相册批量导入：先打开应用内选择器，选完一次性进编辑器 */
   const handleImport = () =>
-    setRoute({ name: 'picker', title: '导入图片', returnTo: 'home' });
+    setRoute({ name: 'picker', title: t('importImages'), returnTo: 'home' });
 
   /** 取消导入：草稿文件（含已导入的页面）全部丢弃 */
   const handleScanCancel = (draftId: string) => {
@@ -183,7 +186,7 @@ export default function App() {
       name: 'pdf',
       doc: {
         id: `${now}`,
-        title: makeTitle('PDF 文档'),
+        title: makeTitle(t('defaultPdfTitle')),
         pages: [],
         uri: null,
         pageCount: 0,
@@ -254,18 +257,18 @@ export default function App() {
       setRoute(to(nextDoc));
     } catch (error) {
       Alert.alert(
-        '保存失败',
-        error instanceof Error ? error.message : '未知错误',
+        t('saveFailedTitle'),
+        error instanceof Error ? error.message : t('unknownError'),
       );
       setRoute(to(pdf));
     }
   };
 
   const handleDeletePdf = (pdf: PdfDoc) => {
-    Alert.alert('删除 PDF', '将删除 PDF 和全部源图片，无法恢复。', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(t('deletePdfTitle'), t('deletePdfBody'), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: '删除',
+        text: t('delete'),
         style: 'destructive',
         onPress: async () => {
           commitPdfs(pdfsRef.current.filter((item) => item.id !== pdf.id));
@@ -358,7 +361,7 @@ export default function App() {
           onCaptured={(uri) => goScanEditor([uri])}
           onCancel={() => setRoute({ name: 'home' })}
           onPickGallery={() =>
-            setRoute({ name: 'picker', title: '导入图片', returnTo: 'camera' })
+            setRoute({ name: 'picker', title: t('importImages'), returnTo: 'camera' })
           }
         />
       )}
@@ -452,7 +455,7 @@ export default function App() {
           return (
             <EditorScreen
               sourceUri={page.originalUri}
-              title={`编辑第 ${pageIndex + 1} 页`}
+              title={t('editPageTitle', { n: pageIndex + 1 })}
               maxDim={1800}
               initialFilter={page.filter}
               initialRotation={page.rotation}

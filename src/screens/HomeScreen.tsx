@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 
 import { formatDate } from '../lib/format';
+import { useI18n } from '../lib/i18n';
 import { shadow, theme } from '../theme';
 import type { PdfDoc, ScanDoc } from '../types';
 
@@ -41,6 +42,7 @@ export default function HomeScreen({
   onOpenPdf,
   onDeletePdf,
 }: Props) {
+  const { t, tp } = useI18n();
   const sorted = useMemo(
     () => [...docs].sort((a, b) => b.createdAt - a.createdAt),
     [docs],
@@ -58,8 +60,8 @@ export default function HomeScreen({
     >
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>扫描 Demo</Text>
-          <Text style={styles.subtitle}>文档扫描 · 智能增强 · 多端通用</Text>
+          <Text style={styles.title}>{t('appName')}</Text>
+          <Text style={styles.subtitle}>{t('homeSubtitle')}</Text>
         </View>
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{docs.length}</Text>
@@ -67,9 +69,25 @@ export default function HomeScreen({
       </View>
 
       <View style={styles.actions}>
-        <ActionCard icon="📷" label="拍照扫描" hint="调用相机" onPress={onScan} primary />
-        <ActionCard icon="🖼️" label="导入图片" hint="从相册选择" onPress={onImport} />
-        <ActionCard icon="📄" label="示例文档" hint="免相机体验" onPress={onSample} />
+        <ActionCard
+          icon="📷"
+          label={t('homeScan')}
+          hint={t('homeScanHint')}
+          onPress={onScan}
+          primary
+        />
+        <ActionCard
+          icon="🖼️"
+          label={t('homeImport')}
+          hint={t('homeImportHint')}
+          onPress={onImport}
+        />
+        <ActionCard
+          icon="📄"
+          label={t('homeSample')}
+          hint={t('homeSampleHint')}
+          onPress={onSample}
+        />
       </View>
 
       <Pressable
@@ -80,8 +98,8 @@ export default function HomeScreen({
           <Text style={styles.pdfIconText}>PDF</Text>
         </View>
         <View style={styles.pdfActionMeta}>
-          <Text style={styles.pdfActionTitle}>图片转 PDF</Text>
-          <Text style={styles.pdfActionHint}>多选 · 自动算法 · 调整顺序 · 导出</Text>
+          <Text style={styles.pdfActionTitle}>{t('imageToPdf')}</Text>
+          <Text style={styles.pdfActionHint}>{t('imageToPdfHint')}</Text>
         </View>
         <Text style={styles.pdfArrow}>›</Text>
       </Pressable>
@@ -89,8 +107,10 @@ export default function HomeScreen({
       {sortedPdfs.length > 0 && (
         <>
           <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>PDF 文档</Text>
-            <Text style={styles.sectionHint}>{sortedPdfs.length} 份</Text>
+            <Text style={styles.sectionTitle}>{t('pdfDocuments')}</Text>
+            <Text style={styles.sectionHint}>
+              {tp('pdfCount', sortedPdfs.length)}
+            </Text>
           </View>
           <View style={styles.list}>
             {sortedPdfs.map((pdf) => {
@@ -115,8 +135,13 @@ export default function HomeScreen({
                       {pdf.title}
                     </Text>
                     <Text style={styles.docSub}>
-                      {pdf.pageCount} 页 · {dirty ? '待重新生成' : '已生成'} ·{' '}
-                      {formatDate(pdf.updatedAt)}
+                      {t('documentMeta', {
+                        pages: tp('pageCount', pdf.pageCount),
+                        status: dirty
+                          ? t('pendingRegeneration')
+                          : t('generated'),
+                        date: formatDate(pdf.updatedAt),
+                      })}
                     </Text>
                   </View>
                   <Pressable
@@ -134,15 +159,17 @@ export default function HomeScreen({
       )}
 
       <View style={styles.sectionHead}>
-        <Text style={styles.sectionTitle}>最近扫描</Text>
-        <Text style={styles.sectionHint}>{sorted.length} 份文档</Text>
+        <Text style={styles.sectionTitle}>{t('recentScans')}</Text>
+        <Text style={styles.sectionHint}>
+          {tp('documentCount', sorted.length)}
+        </Text>
       </View>
 
       {sorted.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyIcon}>🗂️</Text>
-          <Text style={styles.emptyText}>还没有扫描记录</Text>
-          <Text style={styles.emptyHint}>点击上方「拍照扫描 / 导入图片 / 示例文档」开始</Text>
+          <Text style={styles.emptyText}>{t('emptyHomeTitle')}</Text>
+          <Text style={styles.emptyHint}>{t('emptyHomeHint')}</Text>
         </View>
       ) : (
         <View style={styles.list}>
@@ -165,7 +192,10 @@ export default function HomeScreen({
                     {doc.title}
                   </Text>
                   <Text style={styles.docSub}>
-                    {doc.pages.length} 页 · {formatDate(doc.createdAt)}
+                    {t('recentMeta', {
+                      pages: tp('pageCount', doc.pages.length),
+                      date: formatDate(doc.createdAt),
+                    })}
                   </Text>
                 </View>
                 <Pressable
@@ -181,9 +211,7 @@ export default function HomeScreen({
         </View>
       )}
 
-      <Text style={styles.footer}>
-        Android + iOS 同一套代码 · 长按文档可快速删除 · 数据只保存在本机
-      </Text>
+      <Text style={styles.footer}>{t('homeFooter')}</Text>
     </ScrollView>
   );
 }

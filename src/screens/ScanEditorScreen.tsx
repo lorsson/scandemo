@@ -50,10 +50,11 @@ import {
   isNativeAdjustAvailable,
   isNativeFilterAvailable,
 } from '../lib/filterNative';
+import { useI18n } from '../lib/i18n';
 import {
   ADJUST_KEYS,
-  ADJUST_LABELS,
   ADJUST_RANGE,
+  adjustLabel,
   IMPORT_FILTER,
   SCAN_FILTERS,
   ZERO_ADJUST,
@@ -85,13 +86,13 @@ import {
   scanProjectDir,
 } from '../lib/storage';
 import { theme } from '../theme';
+import { filterLabel } from '../types';
 import type {
   DocPage,
   DocumentQuad,
   FilterKey,
   Rotation,
 } from '../types';
-import { FILTER_LABELS } from '../types';
 
 type Props = {
   /** 本次编辑的草稿 id，同时也是草稿目录名 */
@@ -145,6 +146,7 @@ export default function ScanEditorScreen({
   onCancel,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { t, tp } = useI18n();
   /** 文档名：默认取第一张图片的文件名，可在顶部直接改 */
   const [docTitle, setDocTitle] = useState(title);
   const titleInputRef = useRef<ComponentRef<typeof TextInput>>(null);
@@ -324,8 +326,8 @@ export default function ScanEditorScreen({
       } catch (e) {
         if (!isAbortError(e)) {
           Alert.alert(
-            '导入失败',
-            e instanceof Error ? e.message : '图片读取失败，请重新选择。',
+            t('importFailedTitle'),
+            e instanceof Error ? e.message : t('imageReadFailed'),
           );
         }
       } finally {
@@ -333,7 +335,7 @@ export default function ScanEditorScreen({
         end();
       }
     },
-    [begin, commit, draftId, end],
+    [begin, commit, draftId, end, t],
   );
 
   // 首次进入：把选中的图片落盘；不自动跳页，先展示第一张
@@ -472,22 +474,29 @@ export default function ScanEditorScreen({
           setBusy({ kind: 'apply', done, total: targets.length });
         }
       } catch (e) {
-        setError(`处理失败：${(e as Error)?.message ?? '未知错误'}`);
+        setError(
+          t('processingFailed', {
+            message: (e as Error)?.message ?? t('unknownError'),
+          }),
+        );
       } finally {
         end();
       }
     },
-    [begin, commit, draftId, end],
+    [begin, commit, draftId, end, t],
   );
 
   const handleAdd = useCallback(() => {
     if (running.current) return;
     if (limit - pagesRef.current.length <= 0) {
-      Alert.alert('已达页数上限', `单个文档最多 ${limit} 页，更多图片请新建文档。`);
+      Alert.alert(
+        t('pageLimitTitle'),
+        t('scanPageLimitBody', { limit }),
+      );
       return;
     }
     setPickerMode('add');
-  }, [limit]);
+  }, [limit, t]);
 
   const openAdjust = useCallback(() => {
     const page = pagesRef.current[activeRef.current];
@@ -723,12 +732,15 @@ export default function ScanEditorScreen({
         setAdjustOpen(false);
         setPreviewUri(null);
       } catch (e) {
-        Alert.alert('重拍失败', (e as Error)?.message ?? '未知错误');
+        Alert.alert(
+          t('retakeFailedTitle'),
+          (e as Error)?.message ?? t('unknownError'),
+        );
       } finally {
         end();
       }
     },
-    [begin, commit, draftId, end, invalidatePageCache],
+    [begin, commit, draftId, end, invalidatePageCache, t],
   );
 
   /** 图片右上角的删除：三选一 —— 删除此页 / 重拍此页 / 取消 */
@@ -738,13 +750,16 @@ export default function ScanEditorScreen({
     const page = pagesRef.current[index];
     if (!page) return;
     Alert.alert(
-      `第 ${index + 1} 页`,
-      '要删除这一页，还是重新拍一张替换它？',
+      t('pageN', { n: index + 1 }),
+      t('deleteOrRetakeBody'),
       [
-        { text: '取消', style: 'cancel' },
-        { text: '重拍此页', onPress: () => setPickerMode('replace') },
+        { text: t('cancel'), style: 'cancel' },
         {
-          text: '删除此页',
+          text: t('retakeThisPageAction'),
+          onPress: () => setPickerMode('replace'),
+        },
+        {
+          text: t('deleteThisPageAction'),
           style: 'destructive',
           onPress: () => {
             const next = pagesRef.current.filter((item) => item.id !== page.id);
@@ -761,7 +776,7 @@ export default function ScanEditorScreen({
         },
       ],
     );
-  }, [commit, invalidatePageCache]);
+  }, [commit, invalidatePageCache, t]);
 
   const handleCropStart = useCallback(() => {
     const page = pagesRef.current[activeRef.current];
@@ -779,14 +794,11 @@ export default function ScanEditorScreen({
       return;
     }
     if (!isQuadConvex(quad)) {
-      Alert.alert(
-        '无效区域',
-        '四个点要围成凸四边形，边不能交叉或凹陷。',
-      );
+      Alert.alert(t('invalidAreaTitle'), t('convexQuadBody'));
       return;
     }
     if (quadArea(quad) < MIN_QUAD_AREA) {
-      Alert.alert('裁剪区域太小', '拖动四角或四边，让裁剪范围覆盖文档区域。');
+      Alert.alert(t('cropTooSmallTitle'), t('cropTooSmallBody'));
       return;
     }
     if (!baseUri) return;
@@ -833,11 +845,14 @@ export default function ScanEditorScreen({
       setCropMode(false);
       setQuad(FULL_QUAD);
     } catch (e) {
-      Alert.alert('裁剪失败', (e as Error)?.message ?? '未知错误');
+      Alert.alert(
+        t('cropFailedTitle'),
+        (e as Error)?.message ?? t('unknownError'),
+      );
     } finally {
       end();
     }
-  }, [baseUri, begin, commit, draftId, end, invalidatePageCache, quad]);
+  }, [baseUri, begin, commit, draftId, end, invalidatePageCache, quad, t]);
 
   /** 所有页处理后的图片存进系统相册 */
   const handleSaveAllImages = async () => {
@@ -848,7 +863,10 @@ export default function ScanEditorScreen({
     try {
       const perm = await MediaLibrary.requestPermissionsAsync(true);
       if (!perm.granted) {
-        Alert.alert('未获得相册权限', '请在系统设置中允许访问相册后重试。');
+        Alert.alert(
+          t('photoPermissionAlertTitle'),
+          t('photoPermissionAlertBody'),
+        );
         return;
       }
       for (const page of list) {
@@ -856,14 +874,12 @@ export default function ScanEditorScreen({
         saved += 1;
         setBusy({ kind: 'export', done: saved, total: list.length });
       }
-      Alert.alert('已保存', `${saved} 页已保存到系统相册。`);
+      Alert.alert(t('exportedTitle'), tp('savedToLibraryBody', saved));
     } catch (e) {
-      const message = (e as Error)?.message ?? '未知错误';
+      const message = (e as Error)?.message ?? t('unknownError');
       Alert.alert(
-        '保存失败',
-        saved > 0
-          ? `已保存 ${saved} 页，后续页面写入失败：${message}`
-          : message,
+        t('saveFailedTitle'),
+        saved > 0 ? t('savedPartial', { saved, message }) : message,
       );
     } finally {
       end();
@@ -875,9 +891,11 @@ export default function ScanEditorScreen({
     try {
       const available = await Sharing.isAvailableAsync();
       if (!available) {
-        Alert.alert('无法分享', '当前设备不支持系统分享。', [
-          { text: '好', style: 'cancel' },
-        ]);
+        Alert.alert(
+          t('shareUnavailableTitle'),
+          t('shareUnavailableBody'),
+          [{ text: t('ok'), style: 'cancel' }],
+        );
         return;
       }
       await Sharing.shareAsync(uri, {
@@ -886,7 +904,10 @@ export default function ScanEditorScreen({
         dialogTitle: docTitle,
       });
     } catch (e) {
-      Alert.alert('打开分享面板失败', (e as Error)?.message ?? '未知错误');
+      Alert.alert(
+        t('shareSheetFailed'),
+        (e as Error)?.message ?? t('unknownError'),
+      );
     }
   };
 
@@ -914,7 +935,10 @@ export default function ScanEditorScreen({
       return out;
     } catch (e) {
       if (!isAbortError(e)) {
-        Alert.alert('生成 PDF 失败', (e as Error)?.message ?? '未知错误');
+        Alert.alert(
+          t('pdfCreateFailed'),
+          (e as Error)?.message ?? t('unknownError'),
+        );
       }
       return null;
     } finally {
@@ -938,24 +962,27 @@ export default function ScanEditorScreen({
     try {
       const outcome = await savePdfToUser(out);
       if (outcome === 'saved') {
-        Alert.alert('PDF 已保存', `${name} 已保存到所选文件夹。`, [
-          { text: '完成', style: 'cancel' },
-          { text: '分享', onPress: () => void sharePdf(out) },
+        Alert.alert(t('pdfSavedTitle'), t('pdfSavedBody', { name }), [
+          { text: t('done'), style: 'cancel' },
+          { text: t('share'), onPress: () => void sharePdf(out) },
         ]);
       } else if (outcome === 'unavailable') {
-        Alert.alert('PDF 已生成', `文件位置：${out}`);
+        Alert.alert(t('pdfCreatedTitle'), t('pdfReadyPath', { path: out }));
       }
     } catch (e) {
-      Alert.alert('保存 PDF 失败', (e as Error)?.message ?? '未知错误');
+      Alert.alert(
+        t('savePdfFailedTitle'),
+        (e as Error)?.message ?? t('unknownError'),
+      );
     }
   };
 
   const handleCancel = useCallback(() => {
     if (running.current) {
-      Alert.alert('正在处理', '当前操作还没有完成。', [
-        { text: '继续等待', style: 'cancel' },
+      Alert.alert(t('busyTitle'), t('busyBody'), [
+        { text: t('keepWaiting'), style: 'cancel' },
         {
-          text: '放弃并返回',
+          text: t('discardAndLeave'),
           style: 'destructive',
           onPress: () => {
             abortRef.current?.abort();
@@ -970,14 +997,14 @@ export default function ScanEditorScreen({
       return;
     }
     Alert.alert(
-      '返回并放弃编辑？',
-      `已导入的 ${pagesRef.current.length} 页不会保存。`,
+      t('discardEditsTitle'),
+      tp('discardEditsBody', pagesRef.current.length),
       [
-        { text: '继续编辑', style: 'cancel' },
-        { text: '返回', style: 'destructive', onPress: onCancel },
+        { text: t('keepEditing'), style: 'cancel' },
+        { text: t('back'), style: 'destructive', onPress: onCancel },
       ],
     );
-  }, [onCancel]);
+  }, [onCancel, t, tp]);
 
   // 安卓返回键等同「返回」；改标题时先收起键盘，裁剪模式下先退出裁剪
   useEffect(() => {
@@ -1107,19 +1134,19 @@ export default function ScanEditorScreen({
     if (!busy) return '';
     switch (busy.kind) {
       case 'import':
-        return `正在导入 ${busy.done}/${busy.total}`;
+        return t('importingProgress', busy);
       case 'apply':
-        return `正在处理 ${busy.done}/${busy.total}`;
+        return t('applyingProgress', busy);
       case 'pdf':
         return busy.done === 0
-          ? '正在生成 PDF…'
-          : `正在生成 PDF ${busy.done}/${busy.total}`;
+          ? t('creatingPdf')
+          : t('creatingPdfProgress', busy);
       case 'export':
-        return `正在保存到相册 ${busy.done}/${busy.total}`;
+        return t('savingToLibraryProgress', busy);
       case 'crop':
-        return '正在裁剪…';
+        return t('cropping');
       case 'replace':
-        return '正在替换图片…';
+        return t('replacingImage');
       default:
         return '';
     }
@@ -1129,20 +1156,20 @@ export default function ScanEditorScreen({
     <View style={styles.root}>
       <View style={[styles.topBar, { paddingTop: 12 + insets.top }]}>
         <Pressable hitSlop={12} onPress={handleCancel} style={styles.topBtn}>
-          <Text style={styles.topBtnText}>返回</Text>
+          <Text style={styles.topBtnText}>{t('back')}</Text>
         </Pressable>
         <TextInput
           ref={titleInputRef}
           value={docTitle}
           onChangeText={setDocTitle}
-          placeholder="PDF 文档名称"
+          placeholder={t('docNamePlaceholder')}
           placeholderTextColor="rgba(255,255,255,0.35)"
           style={styles.topTitleInput}
           maxLength={60}
           editable={!busy}
           returnKeyType="done"
           selectTextOnFocus
-          accessibilityLabel="PDF 文档名称"
+          accessibilityLabel={t('pdfNameA11y')}
         />
         <Pressable
           hitSlop={12}
@@ -1157,7 +1184,7 @@ export default function ScanEditorScreen({
               (busy !== null || pages.length === 0) && styles.disabledText,
             ]}
           >
-            分享
+            {t('share')}
           </Text>
         </Pressable>
       </View>
@@ -1215,15 +1242,15 @@ export default function ScanEditorScreen({
           ) : (
             <View style={styles.emptyPreview}>
               <Text style={styles.emptyIcon}>🖼️</Text>
-              <Text style={styles.emptyText}>还没有页面</Text>
-              <Text style={styles.emptyHint}>点下方「继续导入」添加图片</Text>
+              <Text style={styles.emptyText}>{t('noPagesYet')}</Text>
+              <Text style={styles.emptyHint}>{t('noPagesHint')}</Text>
             </View>
           )}
 
           {!cropMode && activePage && (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="删除当前页"
+              accessibilityLabel={t('deleteCurrentPage')}
               hitSlop={8}
               onPress={handleRemove}
               style={({ pressed }) => [
@@ -1254,7 +1281,7 @@ export default function ScanEditorScreen({
           {previewBusy && !busy && (
             <View style={styles.processingPill}>
               <ActivityIndicator color="#fff" size="small" />
-              <Text style={styles.processingText}>预览生成中…</Text>
+              <Text style={styles.processingText}>{t('generatingPreview')}</Text>
             </View>
           )}
           {error && <Text style={styles.error}>{error}</Text>}
@@ -1267,7 +1294,7 @@ export default function ScanEditorScreen({
         <View style={styles.pagerCenter}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="上一页"
+            accessibilityLabel={t('previousPage')}
             disabled={!canInteract || active <= 0}
             onPress={() => selectPage(active - 1)}
             style={({ pressed }) => [
@@ -1283,7 +1310,7 @@ export default function ScanEditorScreen({
           </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="下一页"
+            accessibilityLabel={t('nextPage')}
             disabled={!canInteract || active >= pages.length - 1}
             onPress={() => selectPage(active + 1)}
             style={({ pressed }) => [
@@ -1300,7 +1327,7 @@ export default function ScanEditorScreen({
             // 按住显示原图：常态高亮「对比」，按住时高亮「原图」
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="按住查看原图"
+              accessibilityLabel={t('holdToCompare')}
               onPressIn={() => setCompare(true)}
               onPressOut={() => setCompare(false)}
               style={({ pressed }) => [
@@ -1328,7 +1355,7 @@ export default function ScanEditorScreen({
                   compare && styles.comparePillTextOn,
                 ]}
               >
-                原图
+                {t('original')}
               </Text>
               <Text
                 style={[
@@ -1344,7 +1371,7 @@ export default function ScanEditorScreen({
                   compare && styles.comparePillTextOn,
                 ]}
               >
-                对比
+                {t('compare')}
               </Text>
             </Pressable>
           )}
@@ -1357,9 +1384,7 @@ export default function ScanEditorScreen({
             <Text
               style={[styles.cropHint, !cropValid && styles.cropHintInvalid]}
             >
-              {cropValid
-                ? '智能裁剪预览：拖动四角或四边，框住文档区域'
-                : '无效区域：四个点要围成凸四边形，边不能交叉或凹陷'}
+              {cropValid ? t('cropHintValid') : t('cropHintInvalid')}
             </Text>
             <View style={styles.cropActions}>
               <Pressable
@@ -1371,7 +1396,7 @@ export default function ScanEditorScreen({
                   busy !== null && styles.disabled,
                 ]}
               >
-                <Text style={styles.cropActionText}>取消</Text>
+                <Text style={styles.cropActionText}>{t('cancel')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => setQuad(FULL_QUAD)}
@@ -1382,7 +1407,7 @@ export default function ScanEditorScreen({
                   busy !== null && styles.disabled,
                 ]}
               >
-                <Text style={styles.cropActionText}>重置</Text>
+                <Text style={styles.cropActionText}>{t('reset')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => void handleCropConfirm()}
@@ -1396,7 +1421,7 @@ export default function ScanEditorScreen({
                 ]}
               >
                 <Text style={[styles.cropActionText, styles.cropActionPrimaryText]}>
-                  确定
+                  {t('confirm')}
                 </Text>
               </Pressable>
             </View>
@@ -1404,7 +1429,7 @@ export default function ScanEditorScreen({
         ) : (
           <>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>图像处理</Text>
+              <Text style={styles.sectionTitle}>{t('imageProcessing')}</Text>
               <Pressable
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: applyAll }}
@@ -1419,7 +1444,7 @@ export default function ScanEditorScreen({
                 >
                   {applyAll && <Text style={styles.checkMark}>✓</Text>}
                 </View>
-                <Text style={styles.checkLabel}>应用到所有页</Text>
+                <Text style={styles.checkLabel}>{t('applyToAllPages')}</Text>
               </Pressable>
             </View>
 
@@ -1446,7 +1471,7 @@ export default function ScanEditorScreen({
                               selected && styles.adjustChipTextOn,
                             ]}
                           >
-                            {ADJUST_LABELS[key]}
+                            {adjustLabel(key)}
                           </Text>
                         </Pressable>
                       );
@@ -1455,7 +1480,7 @@ export default function ScanEditorScreen({
                   <View style={styles.adjustActions}>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="放弃调节"
+                      accessibilityLabel={t('discardAdjust')}
                       onPress={closeAdjust}
                       style={({ pressed }) => [
                         styles.adjustAction,
@@ -1466,7 +1491,7 @@ export default function ScanEditorScreen({
                     </Pressable>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="保存调节"
+                      accessibilityLabel={t('saveAdjust')}
                       disabled={busy !== null}
                       onPress={confirmAdjust}
                       style={({ pressed }) => [
@@ -1507,8 +1532,8 @@ export default function ScanEditorScreen({
                   </Text>
                 </View>
                 <Text style={styles.adjustHint}>
-                  {applyAll ? '调节将应用到所有页 · ' : ''}
-                  ✓ 保存，✕ 放弃
+                  {applyAll ? t('adjustAppliesAll') : ''}
+                  {t('adjustHint')}
                 </Text>
               </View>
             ) : (
@@ -1525,7 +1550,7 @@ export default function ScanEditorScreen({
                       key={key}
                       accessibilityRole="button"
                       accessibilityState={{ selected }}
-                      accessibilityLabel={FILTER_LABELS[key]}
+                      accessibilityLabel={filterLabel(key)}
                       disabled={!canInteract || !activePage}
                       onPress={() => handleFilterPress(key)}
                       style={({ pressed }) => [
@@ -1551,7 +1576,7 @@ export default function ScanEditorScreen({
                         ]}
                         numberOfLines={1}
                       >
-                        {FILTER_LABELS[key]}
+                        {filterLabel(key)}
                       </Text>
                     </Pressable>
                   );
@@ -1562,34 +1587,34 @@ export default function ScanEditorScreen({
             <View style={styles.toolRow}>
               <ToolButton
                 glyph="＋"
-                label="继续导入"
+                label={t('importMore')}
                 disabled={!canInteract}
                 onPress={handleAdd}
               />
               <ToolButton
                 glyph="↺"
-                label="左转"
+                label={t('rotateLeft')}
                 disabled={!canInteract || !activePage}
                 onPress={() => handleRotate(270)}
               />
               <ToolButton
                 glyph="↻"
-                label="右转"
+                label={t('rotateRight')}
                 disabled={!canInteract || !activePage}
                 onPress={() => handleRotate(90)}
               />
               <ToolButton
                 glyph="⌗"
-                label="裁剪"
+                label={t('crop')}
                 disabled={!canInteract || !activePage}
                 onPress={handleCropStart}
               />
               <ToolButton
                 glyph="T"
-                label="提取文字"
+                label={t('extractText')}
                 disabled={!canInteract || !activePage}
                 onPress={() =>
-                  Alert.alert('提取文字', 'OCR 文字识别功能正在开发中。')
+                  Alert.alert(t('ocrComingTitle'), t('ocrComingBody'))
                 }
               />
             </View>
@@ -1605,7 +1630,7 @@ export default function ScanEditorScreen({
                   (!canInteract || pages.length === 0) && styles.disabled,
                 ]}
               >
-                <Text style={styles.exportText}>保存所有图片</Text>
+                <Text style={styles.exportText}>{t('saveAllImages')}</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -1619,7 +1644,7 @@ export default function ScanEditorScreen({
                 ]}
               >
                 <Text style={[styles.exportText, styles.exportPrimaryText]}>
-                  保存成 PDF
+                  {t('saveAsPdf')}
                 </Text>
               </Pressable>
             </View>
@@ -1631,7 +1656,9 @@ export default function ScanEditorScreen({
         <View style={StyleSheet.absoluteFill}>
           <PhotoPickerScreen
             limit={pickerMode === 'add' ? limit - pages.length : 1}
-            title={pickerMode === 'add' ? '添加图片' : '重拍此页'}
+            title={
+              pickerMode === 'add' ? t('pickerAddTitle') : t('retakePage')
+            }
             onCancel={() => setPickerMode(null)}
             onDone={(uris) => {
               const mode = pickerMode;

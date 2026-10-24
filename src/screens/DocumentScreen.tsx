@@ -12,9 +12,10 @@ import * as MediaLibrary from 'expo-media-library/legacy';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatDate } from '../lib/format';
+import { t, useI18n } from '../lib/i18n';
 import { theme } from '../theme';
+import { filterLabel } from '../types';
 import type { ScanDoc } from '../types';
-import { FILTER_LABELS } from '../types';
 
 type Props = {
   doc: ScanDoc;
@@ -27,6 +28,7 @@ export default function DocumentScreen({ doc, onBack, onDelete }: Props) {
   const [exporting, setExporting] = useState(false);
   const [exported, setExported] = useState(0);
   const insets = useSafeAreaInsets();
+  const { t: tr, tp: trp } = useI18n();
 
   const pages = doc.pages;
   const current = pages[Math.min(index, pages.length - 1)];
@@ -40,7 +42,7 @@ export default function DocumentScreen({ doc, onBack, onDelete }: Props) {
     try {
       const perm = await MediaLibrary.requestPermissionsAsync(true);
       if (!perm.granted) {
-        Alert.alert('未获得相册权限', '请在系统设置中允许访问相册后重试。');
+        Alert.alert(tr('photoPermissionAlertTitle'), tr('photoPermissionAlertBody'));
         return;
       }
       for (let i = 0; i < pages.length; i++) {
@@ -48,31 +50,35 @@ export default function DocumentScreen({ doc, onBack, onDelete }: Props) {
         done = i + 1;
         setExported(done);
       }
-      Alert.alert('已保存', `${pages.length} 页已导出到系统相册。`);
+      Alert.alert(tr('exportedTitle'), trp('exportedBody', pages.length));
     } catch (e) {
-      Alert.alert('导出失败', exportFailedMessage(e, done));
+      Alert.alert(tr('exportFailedTitle'), exportFailedMessage(e, done));
     } finally {
       setExporting(false);
     }
   };
 
   const confirmDelete = () => {
-    Alert.alert('删除文档', `确定删除这份扫描件吗？共 ${pages.length} 页。`, [
-      { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: () => onDelete(doc) },
-    ]);
+    Alert.alert(
+      tr('deleteDocumentTitle'),
+      tr('deleteDocumentBody', { pages: trp('pageCount', pages.length) }),
+      [
+        { text: tr('cancel'), style: 'cancel' },
+        { text: tr('delete'), style: 'destructive', onPress: () => onDelete(doc) },
+      ],
+    );
   };
 
   return (
     <View style={styles.root}>
       <View style={[styles.topBar, { paddingTop: 12 + insets.top }]}>
         <Pressable hitSlop={12} onPress={onBack} style={styles.topBtn}>
-          <Text style={styles.topBtnText}>返回</Text>
+          <Text style={styles.topBtnText}>{tr('back')}</Text>
         </Pressable>
         <Text style={styles.topTitle} numberOfLines={1}>
           {doc.title}
         </Text>
-        <Text style={styles.topMeta}>{pages.length} 页</Text>
+        <Text style={styles.topMeta}>{trp('pageCount', pages.length)}</Text>
       </View>
 
       <View style={styles.imageWrap}>
@@ -83,7 +89,7 @@ export default function DocumentScreen({ doc, onBack, onDelete }: Props) {
             resizeMode="contain"
           />
         ) : (
-          <Text style={styles.emptyText}>文档没有页面</Text>
+          <Text style={styles.emptyText}>{tr('emptyDocument')}</Text>
         )}
       </View>
 
@@ -100,7 +106,7 @@ export default function DocumentScreen({ doc, onBack, onDelete }: Props) {
               <Pressable
                 key={page.id}
                 accessibilityRole="button"
-                accessibilityLabel={`第 ${i + 1} 页`}
+                accessibilityLabel={tr('pageN', { n: i + 1 })}
                 accessibilityState={{ selected }}
                 onPress={() => setIndex(i)}
                 style={[styles.thumbWrap, selected && styles.thumbWrapActive]}
@@ -115,14 +121,20 @@ export default function DocumentScreen({ doc, onBack, onDelete }: Props) {
       <View style={styles.metaBar}>
         <View style={styles.metaText}>
           <Text style={styles.metaTitle}>
-            {pages.length > 1 ? `第 ${index + 1} / ${pages.length} 页` : '1 页'}
+            {pages.length > 1
+              ? tr('pageOfPages', { current: index + 1, total: pages.length })
+              : trp('pageCount', 1)}
             {current
-              ? ` · ${FILTER_LABELS[current.filter]}${
-                  current.rotation ? ` · 旋转 ${current.rotation}°` : ''
+              ? ` · ${filterLabel(current.filter)}${
+                  current.rotation
+                    ? ` · ${tr('rotated', { degrees: current.rotation })}`
+                    : ''
                 }`
               : ''}
           </Text>
-          <Text style={styles.metaSub}>扫描时间 {formatDate(doc.createdAt)}</Text>
+          <Text style={styles.metaSub}>
+            {tr('scannedAt', { date: formatDate(doc.createdAt) })}
+          </Text>
         </View>
       </View>
 
@@ -134,17 +146,17 @@ export default function DocumentScreen({ doc, onBack, onDelete }: Props) {
         >
           <Text style={styles.actionText}>
             {exporting
-              ? `导出中 ${exported}/${pages.length}`
+              ? tr('exportingProgress', { done: exported, total: pages.length })
               : pages.length > 1
-                ? `导出 ${pages.length} 页到相册`
-                : '导出到相册'}
+                ? tr('exportPagesToLibrary', { count: pages.length })
+                : tr('exportToLibrary')}
           </Text>
         </Pressable>
         <Pressable
           style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.8 }]}
           onPress={confirmDelete}
         >
-          <Text style={styles.deleteText}>删除</Text>
+          <Text style={styles.deleteText}>{tr('delete')}</Text>
         </Pressable>
       </View>
     </View>
@@ -153,10 +165,10 @@ export default function DocumentScreen({ doc, onBack, onDelete }: Props) {
 
 /** 导出到一半失败：告诉用户已保存了几页，避免重复导出 */
 function exportFailedMessage(error: unknown, exported: number): string {
-  const message = error instanceof Error ? error.message : '未知错误';
+  const message = error instanceof Error ? error.message : t('unknownError');
   return exported > 0
-    ? `已导出 ${exported} 页，后续页面写入失败：${message}`
-    : `无法写入相册：${message}`;
+    ? t('exportPartial', { exported, message })
+    : t('exportNone', { message });
 }
 
 const styles = StyleSheet.create({

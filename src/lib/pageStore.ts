@@ -10,6 +10,7 @@ import {
   ZERO_ADJUST,
   type PageAdjust,
 } from './filters';
+import { t } from './i18n';
 import { resizeImage, resizeToWidth } from './imagePipeline';
 import type { DocPage, FilterKey, Rotation } from '../types';
 
@@ -238,7 +239,7 @@ export async function savePageEdit(
   const adjust = sanitizeAdjust(edit.adjust);
 
   if (editNeedsRender({ ...edit, adjust })) {
-    if (!base64) throw new Error('缺少处理后的图片数据');
+    if (!base64) throw new Error(t('errorMissingImageData'));
     await ensureDir(dirs.edited);
     const target = `${dirs.edited}${page.id}_${Date.now()}.jpg`;
     await FileSystem.writeAsStringAsync(target, base64, {

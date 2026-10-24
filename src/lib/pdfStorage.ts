@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { isFilterKey } from './filters';
+import { t } from './i18n';
 import {
   deletePageFiles,
   importPages,
@@ -44,7 +45,7 @@ function sanitizeDoc(value: unknown): PdfDoc | null {
 
   return {
     id: raw.id,
-    title: typeof raw.title === 'string' ? raw.title : 'PDF 文档',
+    title: typeof raw.title === 'string' ? raw.title : t('defaultPdfTitle'),
     pages,
     uri: typeof raw.uri === 'string' ? raw.uri : null,
     pageCount: pages.length,

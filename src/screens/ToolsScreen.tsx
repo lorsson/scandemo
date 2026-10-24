@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useI18n, type MessageKey } from '../lib/i18n';
 import { shadow, theme } from '../theme';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -23,10 +24,30 @@ type Tool = {
   onPress: () => void;
 };
 
-const UPCOMING: { key: string; label: string; hint: string; icon: IconName }[] = [
-  { key: 'crop', label: '自动切边', hint: '自动找到纸张四角', icon: 'scan-outline' },
-  { key: 'annotate', label: '批注', hint: '手写与文字标注', icon: 'pencil-outline' },
-  { key: 'ocr', label: '文字识别', hint: '提取图片里的文字', icon: 'text-outline' },
+const UPCOMING: {
+  key: string;
+  labelKey: MessageKey;
+  hintKey: MessageKey;
+  icon: IconName;
+}[] = [
+  {
+    key: 'crop',
+    labelKey: 'autoCrop',
+    hintKey: 'autoCropHint',
+    icon: 'scan-outline',
+  },
+  {
+    key: 'annotate',
+    labelKey: 'annotate',
+    hintKey: 'annotateHint',
+    icon: 'pencil-outline',
+  },
+  {
+    key: 'ocr',
+    labelKey: 'ocr',
+    hintKey: 'ocrHint',
+    icon: 'text-outline',
+  },
 ];
 
 export default function ToolsScreen({
@@ -36,36 +57,37 @@ export default function ToolsScreen({
   onSample,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { t } = useI18n();
 
   const tools: Tool[] = [
     {
       key: 'pdf',
-      label: '图片转 PDF',
-      hint: '多选图片 · 自动算法',
+      label: t('imageToPdf'),
+      hint: t('toolPdfHint'),
       icon: 'document-text-outline',
       color: theme.primary,
       onPress: onCreatePdf,
     },
     {
       key: 'scan',
-      label: '拍照扫描',
-      hint: '拍摄后自动增强',
+      label: t('toolScan'),
+      hint: t('toolScanHint'),
       icon: 'camera-outline',
       color: '#0f9f75',
       onPress: onScan,
     },
     {
       key: 'import',
-      label: '导入图片',
-      hint: '从相册选择',
+      label: t('toolImport'),
+      hint: t('toolImportHint'),
       icon: 'images-outline',
       color: '#8a5cf6',
       onPress: onImport,
     },
     {
       key: 'sample',
-      label: '示例文档',
-      hint: '不用相机快速体验',
+      label: t('toolSample'),
+      hint: t('toolSampleHint'),
       icon: 'sparkles-outline',
       color: '#e08a00',
       onPress: onSample,
@@ -75,8 +97,8 @@ export default function ToolsScreen({
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.title}>工具箱</Text>
-        <Text style={styles.subtitle}>扫描、转换与整理</Text>
+        <Text style={styles.title}>{t('toolsTitle')}</Text>
+        <Text style={styles.subtitle}>{t('toolsSubtitle')}</Text>
       </View>
 
       <ScrollView
@@ -103,8 +125,8 @@ export default function ToolsScreen({
         </View>
 
         <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>即将上线</Text>
-          <Text style={styles.sectionHint}>预留接口</Text>
+          <Text style={styles.sectionTitle}>{t('comingSoon')}</Text>
+          <Text style={styles.sectionHint}>{t('reservedApi')}</Text>
         </View>
 
         <View style={styles.list}>
@@ -112,19 +134,17 @@ export default function ToolsScreen({
             <View key={item.key} style={[styles.row, styles.rowDisabled]}>
               <Ionicons name={item.icon} size={20} color={theme.subtext} />
               <View style={styles.rowMeta}>
-                <Text style={styles.rowTitle}>{item.label}</Text>
-                <Text style={styles.rowHint}>{item.hint}</Text>
+                <Text style={styles.rowTitle}>{t(item.labelKey)}</Text>
+                <Text style={styles.rowHint}>{t(item.hintKey)}</Text>
               </View>
               <View style={styles.soonTag}>
-                <Text style={styles.soonText}>敬请期待</Text>
+                <Text style={styles.soonText}>{t('soonTag')}</Text>
               </View>
             </View>
           ))}
         </View>
 
-        <Text style={styles.footer}>
-          所有处理都在本机完成，图片不会上传到服务器。
-        </Text>
+        <Text style={styles.footer}>{t('toolsFooter')}</Text>
       </ScrollView>
     </View>
   );

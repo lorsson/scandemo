@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -8,6 +8,7 @@ import {
   isNativeFilterAvailable,
   nativeCoreVersion,
 } from '../lib/filterNative';
+import { useI18n, type LocalePreference } from '../lib/i18n';
 import { shadow, theme } from '../theme';
 import type { PdfDoc, ScanDoc } from '../types';
 
@@ -18,14 +19,20 @@ type Props = {
 
 export default function ProfileScreen({ docs, pdfs }: Props) {
   const insets = useSafeAreaInsets();
+  const { t, preference, setPreference } = useI18n();
   const native = isNativeFilterAvailable();
-  const engine = native ? '原生 C++' : 'WebView Canvas';
+  const engine = native ? t('nativeEngine') : t('canvasEngine');
   const engineHint = native
-    ? '文件直接进算法，不走 base64'
-    : 'Expo Go 兜底路径，建议用开发版';
+    ? t('nativeEngineHint')
+    : t('canvasEngineHint');
   const pageCount =
     pdfs.reduce((sum, pdf) => sum + pdf.pageCount, 0) +
     docs.reduce((sum, doc) => sum + doc.pages.length, 0);
+  const languageOptions: { value: LocalePreference; label: string }[] = [
+    { value: 'system', label: t('languageSystem') },
+    { value: 'zh', label: t('languageChinese') },
+    { value: 'en', label: t('languageEnglish') },
+  ];
 
   return (
     <View style={styles.root}>
@@ -42,25 +49,25 @@ export default function ProfileScreen({ docs, pdfs }: Props) {
             <Ionicons name="person" size={30} color={theme.primary} />
           </View>
           <View style={styles.profileMeta}>
-            <Text style={styles.name}>扫描 Demo</Text>
+            <Text style={styles.name}>{t('appName')}</Text>
             <Text style={styles.version}>
-              版本 {appConfig.expo.version} · 数据只保存在本机
+              {t('versionLine', { version: appConfig.expo.version })}
             </Text>
           </View>
         </View>
 
         <View style={styles.stats}>
-          <Stat label="扫描文档" value={docs.length} />
+          <Stat label={t('statScans')} value={docs.length} />
           <View style={styles.statDivider} />
           <Stat label="PDF" value={pdfs.length} />
           <View style={styles.statDivider} />
-          <Stat label="总页数" value={pageCount} />
+          <Stat label={t('statTotalPages')} value={pageCount} />
         </View>
 
         <View style={styles.card}>
           <InfoRow
             icon="hardware-chip-outline"
-            title="算法引擎"
+            title={t('algorithmEngine')}
             value={engine}
             hint={engineHint}
             accent={native ? theme.success : '#e08a00'}
@@ -68,27 +75,63 @@ export default function ProfileScreen({ docs, pdfs }: Props) {
           <View style={styles.separator} />
           <InfoRow
             icon="code-slash-outline"
-            title="引擎版本"
-            value={nativeCoreVersion() ?? '未加载'}
+            title={t('engineVersion')}
+            value={nativeCoreVersion() ?? t('notLoaded')}
           />
           <View style={styles.separator} />
           <InfoRow
             icon="folder-outline"
-            title="存储位置"
-            value="应用沙盒"
-            hint="卸载 App 会一并删除"
+            title={t('storageLocation')}
+            value={t('appSandbox')}
+            hint={t('appSandboxHint')}
           />
         </View>
 
         <View style={styles.card}>
-          <InfoRow icon="shield-checkmark-outline" title="隐私" value="全部本机处理" />
+          <InfoRow icon="shield-checkmark-outline" title={t('privacy')} value={t('onDeviceOnly')} />
           <View style={styles.separator} />
-          <InfoRow icon="phone-portrait-outline" title="平台" value="Android · iOS" />
+          <InfoRow icon="phone-portrait-outline" title={t('platform')} value="Android · iOS" />
         </View>
 
-        <Text style={styles.footer}>
-          Android + iOS + HarmonyOS 共用同一份 C++ 算法
-        </Text>
+        <View style={styles.card}>
+          <View style={styles.langHeader}>
+            <Text style={styles.langTitle}>{t('language')}</Text>
+            <Text style={styles.langHint}>{t('languageHint')}</Text>
+          </View>
+          <View style={styles.langRow}>
+            {languageOptions.map((option) => {
+              const selected = preference === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  onPress={() => setPreference(option.value)}
+                  style={[styles.langChip, selected && styles.langChipOn]}
+                >
+                  {selected && (
+                    <Ionicons
+                      name="checkmark"
+                      size={13}
+                      color="#fff"
+                      style={styles.langCheck}
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.langChipText,
+                      selected && styles.langChipTextOn,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <Text style={styles.footer}>{t('profileFooter')}</Text>
       </ScrollView>
     </View>
   );
@@ -184,6 +227,39 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 14, fontWeight: '600', color: theme.text },
   rowHint: { fontSize: 11, color: theme.subtext, marginTop: 2 },
   rowValue: { fontSize: 13, color: theme.subtext, maxWidth: '45%', textAlign: 'right' },
+  langHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    paddingTop: 14,
+    paddingBottom: 10,
+    gap: 8,
+  },
+  langTitle: { fontSize: 14, fontWeight: '600', color: theme.text },
+  langHint: { flexShrink: 1, fontSize: 10, color: theme.subtext },
+  langRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingBottom: 16,
+  },
+  langChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceAlt,
+  },
+  langChipOn: {
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
+  },
+  langCheck: { marginRight: 5 },
+  langChipText: { fontSize: 12, fontWeight: '600', color: theme.text },
+  langChipTextOn: { color: '#fff' },
   footer: {
     textAlign: 'center',
     fontSize: 11,

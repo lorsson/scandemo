@@ -1,0 +1,11 @@
+{
+  "ios": {
+    "CFBundleDisplayName": "扫描 Demo",
+    "NSCameraUsageDescription": "扫描 Demo 需要使用相机拍摄文档进行扫描。",
+    "NSPhotoLibraryUsageDescription": "扫描 Demo 需要访问相册，以便导入待扫描的图片。",
+    "NSPhotoLibraryAddUsageDescription": "扫描 Demo 需要将扫描件保存到相册。"
+  },
+  "android": {
+    "app_name": "扫描 Demo"
+  }
+}

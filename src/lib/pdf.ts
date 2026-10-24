@@ -6,6 +6,7 @@ import {
   isNativePdfAvailable,
 } from '../../modules/image-core';
 import { throwIfAborted } from './abort';
+import { t } from './i18n';
 import { readBase64 } from './imagePipeline';
 import { getPdfLimits, type PdfLimits } from './pdfLimits';
 
@@ -208,11 +209,11 @@ export async function generatePdf(
   options: GeneratePdfOptions = {},
 ): Promise<GeneratePdfResult> {
   if (imageUris.length === 0) {
-    throw new Error('至少需要一张图片');
+    throw new Error(t('errorAtLeastOneImage'));
   }
   const { pageLimit } = getPdfLimits();
   if (imageUris.length > pageLimit) {
-    throw new Error(`本机单次最多生成 ${pageLimit} 页`);
+    throw new Error(t('errorPdfPageLimit', { limit: pageLimit }));
   }
 
   throwIfAborted(options.signal);

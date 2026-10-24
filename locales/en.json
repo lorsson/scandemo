@@ -1,0 +1,11 @@
+{
+  "ios": {
+    "CFBundleDisplayName": "Scan Demo",
+    "NSCameraUsageDescription": "Scan Demo uses the camera to scan documents.",
+    "NSPhotoLibraryUsageDescription": "Scan Demo accesses your photo library so you can import images to scan.",
+    "NSPhotoLibraryAddUsageDescription": "Scan Demo saves scanned documents to your photo library."
+  },
+  "android": {
+    "app_name": "Scan Demo"
+  }
+}

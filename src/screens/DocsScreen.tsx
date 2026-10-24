@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatDate } from '../lib/format';
+import { useI18n, type MessageKey } from '../lib/i18n';
 import { shadow, theme } from '../theme';
 import type { PdfDoc, ScanDoc } from '../types';
 
@@ -34,10 +35,10 @@ function isPdfDirty(pdf: PdfDoc): boolean {
   return !pdf.uri || pdf.generatedAt === null || pdf.updatedAt > pdf.generatedAt;
 }
 
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: 'all', label: '全部' },
-  { key: 'pdf', label: 'PDF' },
-  { key: 'scan', label: '扫描' },
+const FILTERS: { key: Filter; labelKey: MessageKey }[] = [
+  { key: 'all', labelKey: 'filterAll' },
+  { key: 'pdf', labelKey: 'filterPdf' },
+  { key: 'scan', labelKey: 'filterScan' },
 ];
 
 export default function DocsScreen({
@@ -50,6 +51,7 @@ export default function DocsScreen({
   onCreatePdf,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { t, tp } = useI18n();
   const [filter, setFilter] = useState<Filter>('all');
 
   const rows = useMemo<Row[]>(() => {
@@ -72,12 +74,15 @@ export default function DocsScreen({
       .sort((a, b) => b.time - a.time);
   }, [docs, pdfs, filter]);
 
-  const countLabel = `${pdfs.length} 份 PDF · ${docs.length} 份扫描`;
+  const countLabel = t('docsSummary', {
+    pdfs: tp('pdfCount', pdfs.length),
+    scans: tp('scanCount', docs.length),
+  });
 
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.title}>全部文档</Text>
+        <Text style={styles.title}>{t('allDocuments')}</Text>
         <Text style={styles.subtitle}>{countLabel}</Text>
       </View>
 
@@ -93,7 +98,7 @@ export default function DocsScreen({
               style={[styles.chip, active && styles.chipActive]}
             >
               <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                {item.label}
+                {t(item.labelKey)}
               </Text>
             </Pressable>
           );
@@ -114,15 +119,15 @@ export default function DocsScreen({
             />
             <Text style={styles.emptyTitle}>
               {filter === 'all'
-                ? '还没有文档'
+                ? t('emptyDocsAll')
                 : filter === 'pdf'
-                  ? '还没有 PDF 文档'
-                  : '还没有扫描记录'}
+                  ? t('emptyDocsPdf')
+                  : t('emptyDocsScan')}
             </Text>
             <Text style={styles.emptyHint}>
               {filter === 'scan'
-                ? '点底部的相机按钮开始扫描'
-                : '把图片整理成 PDF，随时翻页查看'}
+                ? t('emptyDocsScanHint')
+                : t('emptyDocsPdfHint')}
             </Text>
             {filter !== 'scan' && (
               <Pressable
@@ -130,7 +135,7 @@ export default function DocsScreen({
                 onPress={onCreatePdf}
                 style={styles.emptyBtn}
               >
-                <Text style={styles.emptyBtnText}>图片转 PDF</Text>
+                <Text style={styles.emptyBtnText}>{t('imageToPdf')}</Text>
               </Pressable>
             )}
           </View>
@@ -169,6 +174,7 @@ function PdfRow({
   onOpen: () => void;
   onDelete: () => void;
 }) {
+  const { t, tp } = useI18n();
   const dirty = isPdfDirty(pdf);
   const cover = pdf.pages[0]?.thumbUri;
   return (
@@ -195,13 +201,16 @@ function PdfRow({
           </View>
         </View>
         <Text style={styles.rowSub}>
-          {pdf.pageCount} 页 · {dirty ? '待重新生成' : '已生成'} ·{' '}
-          {formatDate(pdf.updatedAt)}
+          {t('documentMeta', {
+            pages: tp('pageCount', pdf.pageCount),
+            status: dirty ? t('pendingRegeneration') : t('generated'),
+            date: formatDate(pdf.updatedAt),
+          })}
         </Text>
       </View>
       <Pressable
         hitSlop={10}
-        accessibilityLabel="删除"
+        accessibilityLabel={t('deleteA11y')}
         style={styles.deleteBtn}
         onPress={onDelete}
       >
@@ -220,6 +229,7 @@ function ScanRow({
   onOpen: () => void;
   onDelete: () => void;
 }) {
+  const { t, tp } = useI18n();
   const cover = doc.pages[0]?.thumbUri;
   return (
     <Pressable
@@ -238,12 +248,15 @@ function ScanRow({
           {doc.title}
         </Text>
         <Text style={styles.rowSub}>
-          {doc.pages.length} 页 · {formatDate(doc.createdAt)}
+          {t('recentMeta', {
+            pages: tp('pageCount', doc.pages.length),
+            date: formatDate(doc.createdAt),
+          })}
         </Text>
       </View>
       <Pressable
         hitSlop={10}
-        accessibilityLabel="删除"
+        accessibilityLabel={t('deleteA11y')}
         style={styles.deleteBtn}
         onPress={onDelete}
       >

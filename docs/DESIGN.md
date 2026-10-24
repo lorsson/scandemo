@@ -1123,7 +1123,7 @@ loupe              // CropOverlay：整层 PanResponder + 就近抓取（64 dp�
 - 算法缩略图是 260 px 小图逐个进原生（无原生库时进 Canvas），页切换/旋转后
   按 key 复用；裁剪替换源图时清掉该页所有派生缓存和临时文件。
 - `busy` 在事件处理器里立即置位（避免“点完没反应”），并禁用会改状态的操作。
-- 出错时显示中文错误文案，保存失败不会卡在“保存中”。
+- 出错时显示当前语言的错误文案，保存失败不会卡在“保存中”。
 
 ### 10.3 页面职责
 
@@ -1153,6 +1153,41 @@ limits / busy`，每次改动都通过 `onUpdate` 回写 `App.tsx` 并落盘；`
 
 新建 PDF 时先创建空草稿并直接进入 `PdfScreen`（不再在首页弹相册选择器），
 这样用户可以先选算法再导入；空草稿只在第一次导入成功后才由 `onUpdate` 写入索引。
+
+### 10.4 多语言（i18n）
+
+目标：不引入第三方 i18n 依赖，一套代码同时发国内版与海外版。
+
+- **词典**：`src/lib/i18n.ts`。英文词典用 `as const` 定义，`keyof` 即
+  `MessageKey`；中文词典声明为 `Record<MessageKey, string>`，少翻/多翻都会在
+  `tsc --noEmit` 阶段报错。
+- **复数**：英文按 `key_one` / `key_other` 两套键，`tp(key, count)` 按
+  `count === 1` 选择；中文两套键写同样文本（中文没有单复数变化）。
+  `PluralKey` 由 `MessageKey` 模板字面量推导，调用处不会拼错后缀。
+- **运行时**：模块级 `currentLocale` + `version` 计数器。
+  `useI18n()` 通过 `useSyncExternalStore` 订阅变化，切换语言后所有使用它的
+  组件立即重渲染；非组件代码（存储、PDF、滤镜错误）直接用 `t()`。
+  `t` / `tp` 是模块级函数而不是闭包，`useCallback` 不会捕获旧语言。
+- **持久化**：偏好存 `AsyncStorage` 的 `settings.locale.v1`，取值为
+  `system | en | zh`；`App.tsx` 启动时先 `await initI18n()` 再加载文档，
+  保证旧数据里缺标题的记录按当前语言生成默认名。
+- **跟随系统**：`expo-localization` 的 `getLocales()[0].languageCode`，
+  中文回退 `zh`，其余一律 `en`。设置页提供「跟随系统 / 简体中文 / English」
+  三个选项。
+- **系统级文案**：`app.json` 的 `locales` 指向 `locales/en.json` 与
+  `locales/zh-Hans.json`，prebuild 时分别生成 iOS 的
+  `InfoPlist.strings`（`CFBundleDisplayName`、相机/相册权限说明）和 Android 的
+  `values-b+zh+Hans/strings.xml`（`app_name`）。基础 `app.json` 用英文，
+  英文是缺省回退。`expo-localization` 的 `supportedLocales` 同时声明
+  `en` / `zh-Hans`，让系统设置里的「App 语言」列表只出现这两种。
+- **算法名**：`FILTER_LABEL_KEYS` / `ADJUST_LABEL_KEYS` 把稳定的算法 key 映射到
+  词典键，`filterLabel()` / `adjustLabel()` 在渲染时取词，不再有模块级
+  `FILTER_LABELS` 常量，因此算法名会跟随语言切换。
+
+取舍：当前只有中英两种语言，所以复数规则简化为 `count === 1`；若以后加入
+俄语、阿拉伯语等复杂复数语言，应改用 `Intl.PluralRules` 并把词典拆成
+`_zero/_one/_two/_few/_many/_other`。RTL 语言同理需要在
+`expo-localization` 插件里打开 `supportsRTL` 并检查布局。
 
 ---
 
@@ -1727,4 +1762,6 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 | 多页扫描编辑 | `src/screens/ScanEditorScreen.tsx` |
 | 单页编辑 | `src/screens/EditorScreen.tsx`（`showPageTools`）、`src/screens/PdfScreen.tsx` |
 | 路由 | `App.tsx` |
+| 多语言运行时 | `src/lib/i18n.ts` |
+| 系统级文案 | `locales/en.json`、`locales/zh-Hans.json`、`app.json` 的 `locales` |
 | 构建配置 | `app.json`、`metro.config.js`、`.github/workflows/ios-unsigned-ipa.yml` |
