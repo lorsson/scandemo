@@ -1,6 +1,10 @@
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system/legacy';
 
+import {
+  createPdfWithNative,
+  isNativePdfAvailable,
+} from '../../modules/image-core';
 import { throwIfAborted } from './abort';
 import { readBase64 } from './imagePipeline';
 import { getPdfLimits, type PdfLimits } from './pdfLimits';
@@ -15,6 +19,11 @@ import { getPdfLimits, type PdfLimits } from './pdfLimits';
 /** A4 @ 72 PPI，同时用于 Print 选项和 CSS @page */
 export const PDF_PAGE_WIDTH = 595;
 export const PDF_PAGE_HEIGHT = 842;
+
+/** BitmapFactory / UIGraphicsPDFRenderer 只接受真实路径，不认 file:// */
+function toNativePath(uri: string): string {
+  return uri.startsWith('file://') ? uri.slice('file://'.length) : uri;
+}
 
 export type PdfProfile = {
   /** 源图最长边（px） */
@@ -56,7 +65,10 @@ export type GeneratePdfResult = {
   uri: string;
   /** 实际写入的页数 */
   pageCount: number;
-  /** expo-print 报告的页数，正常情况下应等于 pageCount */
+  /**
+   * expo-print 报告的页数。实测会多算 1 页（WebView 的分页估算），
+   * 只做参考，真实页数以 pageCount / 打开 PDF 为准。
+   */
   numberOfPages: number;
 };
 
@@ -77,21 +89,30 @@ async function buildPdfHtml(
 <style>
   @page { size: ${PDF_PAGE_WIDTH}px ${PDF_PAGE_HEIGHT}px; margin: 0; }
   html, body { margin: 0; padding: 0; background: #fff; }
+  /* 定死成页面大小并裁掉溢出：图片按 max-height 正好填满时，
+     亚像素舍入会把每个 section 推到第二页，出现「3 张图 6 页」 */
   .page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: ${PDF_PAGE_WIDTH}px;
+    height: ${PDF_PAGE_HEIGHT}px;
+    overflow: hidden;
     page-break-after: always;
     break-after: page;
     page-break-inside: avoid;
     break-inside: avoid;
     text-align: center;
     font-size: 0;
+    line-height: 0;
   }
   .page:last-child { page-break-after: auto; break-after: auto; }
   img {
-    display: inline-block;
+    display: block;
     width: auto;
     height: auto;
-    max-width: ${PDF_PAGE_WIDTH}px;
-    max-height: ${PDF_PAGE_HEIGHT}px;
+    max-width: 100%;
+    max-height: 100%;
     object-fit: contain;
   }
 </style>
@@ -195,6 +216,30 @@ export async function generatePdf(
   }
 
   throwIfAborted(options.signal);
+
+  // 原生路径：逐页解码后直接画进 PDF，不经过 HTML / WebView / base64。
+  // 几十页也只要几百毫秒，失败时再退回 expo-print。
+  if (isNativePdfAvailable()) {
+    try {
+      await ensureParentDir(outputUri);
+      options.onProgress?.(0, imageUris.length);
+      const pages = await createPdfWithNative(
+        imageUris.map(toNativePath),
+        toNativePath(outputUri),
+        PDF_PAGE_WIDTH,
+        PDF_PAGE_HEIGHT,
+      );
+      options.onProgress?.(pages, imageUris.length);
+      throwIfAborted(options.signal);
+      console.log(`[pdf] native done pages=${pages} uri=${outputUri}`);
+      return { uri: outputUri, pageCount: pages, numberOfPages: pages };
+    } catch (e) {
+      if (options.signal?.aborted) throw e;
+      console.warn(
+        `[pdf] native failed (${(e as Error)?.message ?? e}); falling back to expo-print`,
+      );
+    }
+  }
 
   const html: string = await buildPdfHtml(imageUris, options);
   throwIfAborted(options.signal);

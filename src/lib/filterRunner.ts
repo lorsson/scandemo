@@ -1,8 +1,14 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { filterWithCanvas } from './filterEngine';
-import { filterWithNative, isNativeFilterAvailable } from './filterNative';
+import {
+  filterWithNative,
+  isNativeAdjustAvailable,
+  isNativeFilterAvailable,
+} from './filterNative';
 import { readBase64 } from './imagePipeline';
+import type { PageAdjust } from './filters';
+import { isZeroAdjust } from './filters';
 import type { FilterKey } from '../types';
 
 export type FilteredImage = {
@@ -31,15 +37,21 @@ export function stripDataUrl(dataUrl: string): string {
 export async function applyFilter(
   uri: string,
   key: FilterKey,
+  adjust?: PageAdjust | null,
 ): Promise<FilteredImage> {
-  if (key === 'original') {
+  // 原图 + 无微调：直接用输入，省一次解码/编码
+  if (key === 'original' && isZeroAdjust(adjust)) {
     return { uri, source: 'native' };
   }
-  if (isNativeFilterAvailable()) {
-    const out = await filterWithNative(uri, key);
+  const nativeCanHandleAdjust =
+    isZeroAdjust(adjust) || isNativeAdjustAvailable();
+  if (isNativeFilterAvailable() && nativeCanHandleAdjust) {
+    const out = await filterWithNative(uri, key, adjust);
     return { uri: out.uri, source: 'native', temp: true };
   }
-  const base64 = stripDataUrl(await filterWithCanvas(await readBase64(uri), key));
+  const base64 = stripDataUrl(
+    await filterWithCanvas(await readBase64(uri), key, adjust),
+  );
   return { uri: `data:image/jpeg;base64,${base64}`, base64, source: 'canvas' };
 }
 

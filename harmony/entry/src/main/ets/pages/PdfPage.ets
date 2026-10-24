@@ -1,10 +1,10 @@
 import { common } from '@kit.AbilityKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
-import { picker, fileIo as fs } from '@kit.CoreFileKit';
+import { fileIo as fs } from '@kit.CoreFileKit';
 import { router, promptAction } from '@kit.ArkUI';
 
 import { ImageCoreService } from '../image/ImageCoreService';
-import { PdfWriter } from '../pdf/PdfWriter';
+import { PdfSaveResult, savePdfToUser } from '../pdf/PdfSave';
 
 const FILTER_KEYS: string[] = ['original', 'enhance', 'gray', 'bw'];
 const FILTER_LABELS: string[] = ['原图', '增强', '灰度', '黑白'];
@@ -253,7 +253,7 @@ struct PdfPage {
     this.pages = next;
   }
 
-  /** 生成 PDF → 系统保存对话框。取消保存时缓存文件仍保留在 cacheDir */
+  /** 生成 PDF → 系统保存对话框；与 H5 编辑器共用 PdfSave 的保存流程 */
   private async generate(): Promise<void> {
     if (this.busy || this.pages.length === 0) {
       return;
@@ -261,32 +261,19 @@ struct PdfPage {
     this.busy = true;
     try {
       this.status = '正在写入 PDF';
-      const outputPath: string =
-        this.workDir + '/document-' + Date.now().toString() + '.pdf';
       const imagePaths: string[] = [];
       for (let i = 0; i < this.pages.length; i++) {
         imagePaths.push(this.pages[i].previewPath);
       }
-      const count: number = await PdfWriter.write(imagePaths, outputPath);
-
       this.status = '请选择保存位置';
-      const documentPicker: picker.DocumentViewPicker =
-        new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
-      const saveOptions: picker.DocumentSaveOptions =
-        new picker.DocumentSaveOptions();
-      saveOptions.newFileNames = ['扫描文档.pdf'];
-      const uris: string[] = await documentPicker.save(saveOptions);
-      if (uris.length > 0) {
-        const src: fs.File = fs.openSync(outputPath, fs.OpenMode.READ_ONLY);
-        const dest: fs.File = fs.openSync(uris[0], fs.OpenMode.READ_WRITE);
-        try {
-          fs.copyFileSync(src.fd, dest.fd);
-        } finally {
-          fs.closeSync(src);
-          fs.closeSync(dest);
-        }
+      const result: PdfSaveResult = await savePdfToUser(
+        getContext(this) as common.UIAbilityContext,
+        imagePaths,
+        '扫描文档'
+      );
+      if (result.saved) {
         promptAction.showToast({
-          message: 'PDF 已生成：' + count.toString() + ' 页',
+          message: 'PDF 已生成：' + result.count.toString() + ' 页',
         });
       }
     } catch (e) {

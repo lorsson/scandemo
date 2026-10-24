@@ -49,3 +49,10 @@ Thumbs.db
 
 # tests
 coverage/
+
+# python
+__pycache__/
+*.pyc
+
+# editor
+.vscode/

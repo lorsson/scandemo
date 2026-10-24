@@ -1,21 +1,16 @@
-export type FilterKey = 'original' | 'enhance' | 'gray' | 'bw';
+import type { FilterKey, PageAdjust } from './lib/filters';
 
-export const FILTER_LABELS: Record<FilterKey, string> = {
-  original: '原图',
-  enhance: '增强',
-  gray: '灰度',
-  bw: '黑白',
-};
+// 算法清单与标签集中在 ./lib/filters.ts，这里只做转出，避免两处漂移
+export type { FilterKey } from './lib/filters';
+export { FILTER_LABELS } from './lib/filters';
 
 export type ScanDoc = {
   id: string;
-  /** 处理后的整图，保存在应用沙盒内 */
-  uri: string;
-  /** 列表缩略图（demo 中与整图相同） */
-  thumbUri: string;
-  filter: FilterKey;
-  createdAt: number;
   title: string;
+  /** 扫描页；旧版本的单图扫描会在读取索引时迁移成 1 页 */
+  pages: DocPage[];
+  createdAt: number;
+  updatedAt: number;
 };
 
 export type Rotation = 0 | 90 | 180 | 270;
@@ -44,8 +39,11 @@ export type PageAnnotation = {
   text?: string;
 };
 
-/** PDF 里的一页。originalUri 永不覆盖，uri 是当前用于生成的版本 */
-export type PdfPage = {
+/**
+ * 文档里的一页。PDF 文档和扫描文档共用同一套页面结构。
+ * originalUri 永不覆盖，uri 是当前用于显示/生成的版本
+ */
+export type DocPage = {
   id: string;
   /** 导入时预处理后的原图（缩放到工作尺寸），用于重置/重新编辑 */
   originalUri: string;
@@ -55,7 +53,12 @@ export type PdfPage = {
   thumbUri: string;
   filter: FilterKey;
   rotation: Rotation;
-  /** 预留：ONNX 切边后的四角；当前版本不写入 */
+  /** 第二步微调（对比度 / 亮度 / 细节）；旧记录没有这个字段时按全 0 处理 */
+  adjust?: PageAdjust | null;
+  /**
+   * 预留：ONNX 智能切边建议的四角。
+   * 手动/默认四角裁剪会把结果直接烘焙成新的 originalUri，因此这里通常为 null。
+   */
   cropQuad?: DocumentQuad | null;
   /** 预留：手动批注数据；当前版本不写入 */
   annotations?: PageAnnotation[];
@@ -64,7 +67,7 @@ export type PdfPage = {
 export type PdfDoc = {
   id: string;
   title: string;
-  pages: PdfPage[];
+  pages: DocPage[];
   /** 最近一次生成成功的 PDF；为 null 表示还没生成 */
   uri: string | null;
   pageCount: number;

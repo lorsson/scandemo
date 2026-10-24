@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'">
+  <title>Scan Demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 8V5a1 1 0 0 1 1-1h3M20 8V5a1 1 0 0 0-1-1h-3M4 16v3a1 1 0 0 0 1 1h3M20 16v3a1 1 0 0 1-1 1h-3"/>
+            <path d="M8 12h8"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>Scan Demo</h1>
+          <p id="version">桌面端 · 共享 C++ 算法</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="openBtn" class="btn primary">打开图片</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel">
+        <section class="field">
+          <span class="label">滤镜</span>
+          <div class="filters" id="filters" role="group" aria-label="滤镜">
+            <button type="button" data-filter="original">原图</button>
+            <button type="button" data-filter="gray">灰度</button>
+            <button type="button" data-filter="bw">黑白</button>
+            <button type="button" data-filter="enhance" class="active" aria-pressed="true">增强</button>
+          </div>
+        </section>
+
+        <section class="field">
+          <label class="label" for="quality">JPEG 质量 <output id="qualityValue">90</output></label>
+          <input id="quality" type="range" min="1" max="100" step="1" value="90">
+        </section>
+
+        <section class="field">
+          <label class="label" for="maxDim">最长边</label>
+          <select id="maxDim">
+            <option value="0">原始尺寸</option>
+            <option value="2400">2400 px</option>
+            <option value="1600" selected>1600 px</option>
+            <option value="1024">1024 px</option>
+            <option value="800">800 px</option>
+          </select>
+        </section>
+
+        <div class="actions">
+          <button id="applyBtn" class="btn primary wide" disabled>
+            <span class="btn-label">应用滤镜</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+          <button id="saveBtn" class="btn wide" disabled>另存为…</button>
+          <button id="revealBtn" class="btn ghost wide" disabled>在文件夹中显示</button>
+        </div>
+
+        <dl class="meta" id="meta">
+          <div><dt>文件</dt><dd id="metaName">—</dd></div>
+          <div><dt>尺寸</dt><dd id="metaSize">—</dd></div>
+          <div><dt>大小</dt><dd id="metaBytes">—</dd></div>
+          <div><dt>耗时</dt><dd id="metaMs">—</dd></div>
+        </dl>
+      </aside>
+
+      <section class="stage" id="stage">
+        <div class="empty" id="empty">
+          <svg class="empty-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor"
+               stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="7" y="10" width="34" height="28" rx="3"/>
+            <circle cx="17" cy="19" r="3"/>
+            <path d="M11 33l9-9 6 6 4-4 7 7"/>
+          </svg>
+          <p class="empty-title">把图片拖到这里</p>
+          <p class="empty-hint">或点击下方按钮选择 · 支持 JPEG / PNG / BMP / TGA</p>
+          <button id="pickBtn" class="btn primary">选择文件</button>
+        </div>
+
+        <div class="compare" id="compare" hidden>
+          <div class="compare-stack">
+            <img id="resultImg" alt="处理结果" draggable="false">
+            <img id="originalImg" alt="原图" draggable="false">
+          </div>
+        </div>
+
+        <div class="stage-badge" id="stageBadge" hidden>
+          <span id="badgeFilter">增强</span>
+          <span class="badge-sep"></span>
+          <button id="compareBtn" class="badge-btn" type="button">按住看原图</button>
+        </div>
+
+        <div class="drop-overlay" id="dropOverlay" hidden>松开即可打开</div>
+      </section>
+    </main>
+
+    <footer class="statusbar">
+      <span id="status">就绪</span>
+      <span id="stats"></span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

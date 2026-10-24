@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '../theme';
 import type { FilterKey, Rotation } from '../types';
 import { FILTER_LABELS } from '../types';
+import { SCAN_FILTERS } from '../lib/filters';
 import { prepareBase, readBase64, rotateImage } from '../lib/imagePipeline';
 import { filterWithCanvas } from '../lib/filterEngine';
 import { filterWithNative, isNativeFilterAvailable } from '../lib/filterNative';
@@ -36,8 +37,6 @@ type Props = {
   /** 显示切边、批注等单页工具（切边/批注目前是预留接口） */
   showPageTools?: boolean;
 };
-
-const FILTERS: FilterKey[] = ['original', 'enhance', 'gray', 'bw'];
 
 /** data:image/jpeg;base64,xxx -> xxx */
 function stripDataUrl(dataUrl: string): string {
@@ -214,11 +213,25 @@ export default function EditorScreen({
       </View>
 
       <View style={styles.previewArea}>
-        {previewUri ? (
-          <Image source={{ uri: previewUri }} style={styles.preview} resizeMode="contain" />
-        ) : (
-          <ActivityIndicator color="#fff" />
-        )}
+        <ScrollView
+          style={styles.previewScroll}
+          contentContainerStyle={styles.previewScrollContent}
+          maximumZoomScale={4}
+          minimumZoomScale={1}
+          pinchGestureEnabled
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+        >
+          {previewUri ? (
+            <Image
+              source={{ uri: previewUri }}
+              style={styles.preview}
+              resizeMode="contain"
+            />
+          ) : (
+            <ActivityIndicator color="#fff" />
+          )}
+        </ScrollView>
         {((processing && filter !== 'original') || saving) && (
           <View style={styles.overlay}>
             <ActivityIndicator color="#fff" />
@@ -244,7 +257,7 @@ export default function EditorScreen({
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterRow}
         >
-          {FILTERS.map((key) => {
+          {SCAN_FILTERS.map((key) => {
             const active = key === filter;
             return (
               <Pressable
@@ -321,6 +334,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
+  },
+  previewScroll: { width: '100%', height: '100%' },
+  previewScrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   preview: { width: '100%', height: '100%' },
   overlay: {

@@ -13,7 +13,8 @@
 1. **一份算法**：滤镜只写一遍 C++，三端复用，不允许各平台各写一套。
 2. **原生性能**：像素处理走编译后的 C++，不在 Hermes 里跑逐像素 JS。
 3. **无原生模块也能用**：Expo Go / 鸿蒙 H5 场景下有等价的 Canvas 回退。
-4. **完整闭环**：拍照或导入 → 预览滤镜 → 旋转 → 保存 → 历史 → 导出/删除。
+4. **完整闭环**：拍照或批量导入 → 应用内相册选择（带序号/预览）→ 多页编辑
+   （继续导入、排序、逐页滤镜）→ 保存 → 历史 → 逐页查看 / 导出到相册 / 删除。
 5. **图片转 PDF**：多选导入 → 排序 → 生成 → 分享；生成前后都能对单页做增强/旋转。
 6. **可验证**：每个平台都能在没有真机的条件下验证桥接与算法。
 
@@ -22,9 +23,10 @@
 - 不实现文档边缘检测、透视校正、去阴影、去手写（四角检测/切边只预留接口与数据
   结构，见 [EDGE_DETECTION.md](EDGE_DETECTION.md)）。
 - 不做 OCR、云端同步。
-- 不做不限页数的 PDF：`expo-print` 需要整份 HTML 进内存，页数按设备内存
-  限制在 15–60 页；原生流式 writer 的设计见
-  [EDGE_DETECTION.md](EDGE_DETECTION.md) §6（鸿蒙端已实现）。
+- 不做不限页数的 PDF：Android/iOS 已有原生 `createPdf`（逐页写、不占整份
+  HTML），但页数上限仍沿用 `pdfLimits.ts` 的 15–60 页，暂不放开；Expo Go 的
+  expo-print 兜底路径依旧受整份 HTML 进内存的限制。详见
+  [EDGE_DETECTION.md](EDGE_DETECTION.md) §6（鸿蒙端已实现流式 writer）。
 - 不追求上架质量：Release APK 用 debug keystore 签名，iOS 产物未签名。
 - 不提供账号、权限体系或加密存储。
 
@@ -42,7 +44,11 @@
 │   ├─ isNativeFilterAvailable() ──► filterWithNative()              │
 │   └─ 否则 ───────────────────────► filterWithCanvas()              │
 │                                                                    │
-│ pdf.ts：逐页 base64 → HTML → expo-print → 沙盒 document.pdf        │
+│ imagePipeline：resizeImage / rotateImage / warpPerspective         │
+│   └─ 原生几何变换（C++，文件进出）；Expo Go 退回 Canvas/manipulator │
+│                                                                    │
+│ pdf.ts：原生 createPdf（PdfDocument）→ document.pdf                │
+│         无原生库时回退：逐页 base64 → HTML → expo-print            │
 │ documentDetection.ts：ONNX 四角 / 切边（预留，未接原生）             │
 └───────────────┬──────────────────────────────┬─────────────────────┘
                 │ Expo Modules API             │ postMessage / injectJS
@@ -55,7 +61,8 @@
                 │ process_pixels(uint32_t*, w, h, id)
 ┌───────────────▼────────────────────────────────────────────────────┐
 │ modules/image-core/common/image_core.{h,cpp}                       │
-│ 纯 C++17，无平台依赖，只改像素，不解码/编码                          │
+│ 纯 C++17，无平台依赖：滤镜 + 几何变换（warp/resize/rotate）          │
+│ 只改像素，不解码/编码                                              │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -74,22 +81,296 @@ ArkWeb(H5) ──javaScriptProxy──► Index.ets ──► ImageCoreService.e
 
 | 层 | 文件 | 职责 |
 |---|---|---|
-| 入口 / 路由 | `App.tsx` | 路由状态机、文档/PDF 列表增删、权限与相册入口 |
-| 页面 | `src/screens/*` | 首页、相机、编辑器、详情、PDF 排版 |
+| 入口 / 路由 | `App.tsx` | 路由状态机、底部 tab、文档/PDF 列表增删、权限与相册入口 |
+| 页面 | `src/screens/*` | 首页、全部文档、工具箱、我的、相机、相册选择器、扫描编辑器、单页编辑器、详情、PDF 排版、PDF 阅读器 |
+| 底部导航 | `src/components/TabBar.tsx` | 五个入口：首页 / 全部文档 / 相机（凸起主按钮）/ 工具箱 / 我的 |
 | 编排 | `src/lib/imagePipeline.ts` | 资源解析、尺寸读取、缩放、旋转、读 base64 |
 | 引擎选择 | `src/lib/filterNative.ts` | 探测原生模块、文件路径转换、调用与计时日志 |
 | 回退引擎 | `src/lib/filterEngine.tsx` | 隐藏 WebView、消息协议、超时、Canvas 滤镜 |
-| 持久化 | `src/lib/storage.ts` | 沙盒文件 + AsyncStorage 索引 |
-| PDF 生成 | `src/lib/pdf.ts` | 页数上限、分辨率策略、HTML 排版、打印与落盘 |
-| PDF 存储 | `src/lib/pdfStorage.ts` | 项目目录、源图/缩略图/编辑图、索引 |
+| 算法配置 | `src/lib/filters.ts` | 算法 key / 中文名 / UI 顺序 / 微调范围，唯一配置入口 |
+| 裁剪几何 | `src/lib/crop.ts` | 归一化四角、凸性、面积、整图判定（纯函数） |
+| 页面文件 | `src/lib/pageStore.ts` | 页面导入/编辑/删除的文件操作，扫描与 PDF 共用 |
+| 扫描存储 | `src/lib/storage.ts` | 扫描文档索引、草稿目录、旧版单图记录迁移 |
+| PDF 生成 | `src/lib/pdf.ts` | 页数上限、分辨率策略；优先原生 `createPdf`，回退 HTML + expo-print |
+| PDF 保存 | `src/lib/savePdf.ts` | Android SAF 目录选择 / iOS 分享面板，统一保存结果 |
+| PDF 存储 | `src/lib/pdfStorage.ts` | 项目目录、索引，页面文件委托给 `pageStore` |
+| 命名 / 时间 | `src/lib/format.ts` | 从 URI 推导文档名、列表时间格式 |
+| 裁剪组件 | `src/components/CropOverlay.tsx`、`CropLoupe.tsx` | 四角/四边手柄、就近抓取、放大镜 |
 | 切边接口 | `src/lib/documentDetection.ts` | ONNX 检测 / 批量 / 透视变换的 JS 契约（预留） |
-| 类型 | `src/types.ts` | `FilterKey`、`ScanDoc`、`PdfDoc`、`DocumentQuad`、文案 |
+| 类型 | `src/types.ts` | `FilterKey`、`DocPage`、`ScanDoc`、`PdfDoc`、`DocumentQuad`、文案 |
 | 原生桥 | `modules/image-core/*` | Expo 模块封装、平台解码/编码、JNI/NAPI |
 | 算法 | `modules/image-core/common/*` | 纯 C++ 像素处理 |
-| 鸿蒙 | `harmony/` | ArkTS 工程、ArkWeb 页面、NAPI 注册 |
+| 鸿蒙 | `harmony/` | ArkTS 工程、ArkWeb H5 编辑器、NAPI 注册 |
 
 约束：`src/app/` 目录不存在，路由不用 Expo Router；这是当前实现，不是规范（见 §14 ADR-6）。
 非路由代码全部放在 `src/` 下。
+
+### 4.1 各模块的设计方式与取舍
+
+这一节回答「为什么这样切、代价是什么」。每个模块按 **做法 → 优点 →
+代价与规避** 写；具体时序见 §5，实测数字见 §13。
+
+#### 4.1.1 共享 C++ 内核 `modules/image-core/common/`
+
+**做法**：纯 C++17，无 STL 容器、无平台头文件。输入输出都是同一个
+`uint32_t*`，滤镜原地修改；几何变换不分配内存，先 `*_output_size` 拿尺寸，
+调用方分配 `dst` 再调 `*_pixels`。`Filter` 用固定 id，`version()` 返回字符串；
+所有函数先校验指针/宽高，失败返回错误码而不是抛异常。
+
+**优点**
+
+- 一套像素公式，四个平台（Android / iOS / 鸿蒙 / 桌面）行为一致；
+- 原地处理，大图也只有「源缓冲 + 输出缓冲」两份，没有中间拷贝；
+- 不依赖 Bitmap / CoreGraphics / ImageKit，宿主侧能直接编译成 Node-API 或
+  C ABI 做单元测试（§13.1、§13.2 的对比就是这样跑的）；
+- 算法与解码/编码解耦，换编码格式（JPEG → WebP）不动算法。
+
+**代价与规避**
+
+- 每加一个平台就要写一层桥，桥的 bug 只能靠契约测试发现 → `version()` +
+  跨端契约脚本检查函数名、filter id、返回字段；
+- 用不上平台图像库的加速（vImage / Skia / ImageKit）→ 当前 1050×1400 的滤镜
+  只要 8–20 ms，真需要时可在桥内替换；
+- 单线程、无 SIMD，复杂度 O(W·H) → 靠上游把尺寸限制在 1400–1600 px。
+
+#### 4.1.2 像素契约：`0xAARRGGBB`
+
+**做法**：C++ 只认小端 `uint32_t`，值为 `0xAARRGGBB`。各平台主动要求这个
+布局：Android `ARGB_8888` 的 int 数组、iOS
+`premultipliedFirst | byteOrder32Little`、鸿蒙 `BGRA_8888`（字节序 B,G,R,A）、
+桌面 `ic_process_rgba` 内部换 R/B。
+
+**优点**：零转换；`getPixels` / `readPixelsToBuffer` / `writeBufferToPixels`
+都能原地读写，省掉一次全图拷贝；四个平台的桥可以互相参照。
+
+**代价**：契约错了不会崩，只会红蓝互换或整图偏色，很难一眼发现；iOS 是预乘
+alpha，不透明文档无影响，带透明的 PNG 会有误差；Canvas 回退是 RGBA，无法
+共用这份缓冲区。
+
+**规避**：契约写进每个桥的注释；宿主测试固定灰阶/二值输出；跨端脚本检查
+filter id 与字段名。透明图暂不支持（§17）。
+
+#### 4.1.3 四个桥：JNI / ObjC++ / NAPI / C ABI
+
+**做法**：桥只做三件事——解码成像素、调内核、编码写文件。Android 用
+`GetIntArrayElements` 拿裸指针，只读源数组用 `JNI_ABORT` 释放；iOS 的 C 桥把
+`double quad` 转 `float`，`.mm` 直接 `#include` 内核源码（CocoaPods 不编译 pod
+目录外的文件）；鸿蒙 NAPI 接受 `ArrayBuffer`，长度不足抛 `RangeError`；桌面
+导出稳定的 `ic_*` C ABI。
+
+**优点**：桥很薄（每个 300–500 行），出问题容易二分；文件进出，大图不经过
+base64；错误码统一（0 成功 / 负数失败），上层只需要 `check(result == 0)`。
+
+**代价**：同一套「解码 → 内核 → 编码」写了四遍（平台 API 不同，无法复用）；
+iOS 只能在 macOS runner 上编译，Windows 本地无法验证；鸿蒙的 `PixelMap` 与
+`ArrayBuffer` 之间还多一次读写。
+
+**规避**：公开签名由 `ImageCoreModule.ts`、`index.d.ts`、契约脚本三处约束；
+尺寸计算、角度规整等逻辑尽量放进共享代码或共享常量。
+
+#### 4.1.4 Expo 模块封装 `modules/image-core/src/ImageCoreModule.ts`
+
+**做法**：`requireNativeModule('ImageCore')` 放在 `try/catch` 里，失败时记录
+`loadError`，`isImageCoreAvailable()` 返回 false；每项能力用
+`typeof nativeModule?.xxx === 'function'` 探测（旧安装包可能没有
+`processFileEx` / `warpFile` / `createPdf`）。
+
+**优点**：Expo Go 与旧安装包不改 JS 就能降级；UI 层只看能力，不看平台；
+类型集中在一处。
+
+**代价**：TS 接口与 Kotlin / Swift / ArkTS 实现手工同步，新增方法忘了写可选
+声明，TS 不会报错；`requireNativeModule` 的失败原因被压缩成一个布尔值。
+
+**规避**：`loadError` 暴露给调试页；契约脚本检查方法名；新增能力一律做成
+可选方法，调用点先探测。
+
+#### 4.1.5 引擎选择与日志 `src/lib/filterNative.ts`
+
+**做法**：原生可用时文件进文件出，输出到 `cacheDirectory/filter-*.jpg`；
+日志打印 decode / process / encode / total，带 adjust 参数。
+
+**优点**：UI 不关心实现；耗时字段能直接定位瓶颈（裁剪从 5.6 s 降到 284 ms
+就是靠它发现的）；输出文件名带自增序号，同毫秒并发不会互相覆盖。
+
+**代价**：产生大量缓存文件，依赖系统回收；URI ↔ 路径转换散落在多个模块；
+release 也会打日志。
+
+**规避**：所有临时产物都有明确删除点（`pageStore`、`ScanEditor` 的 cleanup）；
+`toFilePath` / `toFileUri` 只保留一份实现。
+
+#### 4.1.6 Canvas 回退 `src/lib/filterEngine.tsx`
+
+**做法**：App 根部挂一个 1×1 透明 WebView，页面内用 Canvas 2D 实现同一套
+公式；消息走 `postMessage`，1.5 s 没响应再用 `injectJavaScript` 补发，单次
+30 s 超时。
+
+**优点**：Expo Go / 旧安装包也能用；WebView 有 JIT，比 Hermes 纯 JS 快两个
+数量级；同一套公式方便做像素级对比（§13.2）。
+
+**代价**：base64 往返（1 MP ≈ 5 MB 字符串）、WebView 常驻内存、时序复杂；
+浮点与整数的取整差异导致与原生不完全一致。
+
+**规避**：只在原生不可用时启用；差异有量化测试；请求 id + 超时防止悬挂。
+
+#### 4.1.7 图像流水线 `src/lib/imagePipeline.ts`
+
+**做法**：`prepareBase`（最长边 1400）、`resizeImage`（原生 C++ 优先，
+`expo-image-manipulator` 兜底）、`resizeToWidth`（按宽换算成最长边）、
+`rotateImage`、`warpPerspective`、`readBase64`、URI 与路径互转。
+
+**优点**：几何操作集中在一个文件，调用点不需要知道原生是否可用；C++ 路径
+文件进出，不经过 base64；缩略图也走同一份箱式/双线性缩放，不会出现「主图
+清晰、缩略图糊」。
+
+**代价**：一个模块同时承担准备、几何、IO 三件事，职责偏杂；兜底路径与原生
+路径的输出质量/耗时不同。
+
+**规避**：几何函数统一返回 URI，调用方负责删除临时文件；只有原生不可用时
+才降级。
+
+#### 4.1.8 页面文件生命周期 `src/lib/pageStore.ts`
+
+**做法**：每页最多三份文件：`src`（原图或裁剪结果，永不覆盖）、`page`
+（按算法渲染的结果）、`thumb`（220 px）。`replacePageSource*` 先写临时文件
+再替换；缩略图由 `resizeToWidth` 生成，替换成功后删旧文件。
+
+**优点**：原图始终可回溯（对比、换算法重算）；渲染失败不会破坏源文件；
+缩略图与主图分离，列表滚动不解大图。
+
+**代价**：一页最多三份文件，30 页约占 30–60 MB；替换路径多，漏删会积累
+垃圾；`copyAsync` 只接受 `file://`。
+
+**规避**：所有写入集中在本模块；删除时同步清理旧渲染/缩略图；缓存目录由
+系统回收。
+
+#### 4.1.9 索引与存储 `storage.ts` / `pdfStorage.ts`
+
+**做法**：`index.json` 记录元数据与页顺序，图片文件放同目录；读取时对每个
+字段做 `sanitize`（旧版本或手改都可能非法）；PDF 页复用 pageStore 的文件
+结构。
+
+**优点**：索引小、可读、易迁移；文件即数据，不依赖数据库；旧记录能容错。
+
+**代价**：没有锁和事务（单 JS 线程下靠串行 `await` 保证）；写到一半被杀会
+留下孤儿文件；索引与文件可能不一致。
+
+**规避**：写临时文件 + rename；读取时过滤不存在的页；孤儿文件靠缓存清理。
+
+#### 4.1.10 PDF 生成与保存 `pdf.ts` / `pdfStorage.ts` / `savePdf.ts`
+
+**做法**：优先原生 `createPdf`（Android/iOS 逐页画进 PDF），否则 HTML +
+`expo-print`。保存分平台：Android 用 SAF 目录选择器，iOS 用分享面板；
+写目标 URI 走 `expo-file-system` 新 API。鸿蒙对应 `PdfWriter` + `PdfSave.ets`。
+
+**优点**：不依赖服务端；原生路径内存只与单页有关（解码前先降采样）；保存
+不需要存储权限。
+
+**代价**：两套实现（原生 / HTML）版式不完全一致；iOS 没有「保存到文件夹」；
+SAF 的 `canWrite()` 不可信，必须用新 API。
+
+**规避**：页数上限 30；逐页解码；保存逻辑集中到 `savePdf.ts` / `PdfSave.ets`，
+两个入口共用。
+
+#### 4.1.11 扫描编辑器 UI `ScanEditorScreen` + `CropOverlay` + `CropLoupe`
+
+**做法**：页面状态（页、当前页、算法、旋转、微调、裁剪、忙碌）都在
+`ScanEditorScreen`；纯几何（归一化坐标、凸性、面积、整图判定）在 `crop.ts`；
+手柄绘制与手势在 `CropOverlay`（就近抓取、四角/四边、触摸区外扩）；放大镜
+单独一层，固定在手柄上方或下方 88 px、2.6×，超出图片的部分透明。
+
+**优点**：归一化坐标让裁剪框与图片尺寸、旋转、屏幕大小解耦；放大镜在最外层，
+不会被舞台的 `overflow: hidden` 裁掉；镜心与手柄固定偏移、1:1 跟手、不做
+夹取，所以不跳；非凸四边形立即变红并禁用「确定」。
+
+**代价**：`ScanEditorScreen` 很大（约 2000 行），状态多、闭包多；手势依赖
+`onLayout`，首帧可能拿不到尺寸；放大镜是纯 UI 重绘，低端机可能掉帧。
+
+**规避**：纯函数抽到 `crop.ts` 并可单测；关键状态用 ref 镜像，避免闭包读到
+旧值；裁剪/旋转产物直接走原生文件，不把像素搬进 JS。
+
+#### 4.1.12 鸿蒙服务层 `harmony/.../ImageCoreService.ets`
+
+**做法**：与 Android / iOS 同构的 7 个方法：`processFile`、`processFileEx`、
+`warpFile`、`resizeFile`、`rotateFile`、`makeThumbnail`、`version`。解码统一
+走 `image.createImageSource(fd)`，请求 `BGRA_8888`，可带 `desiredSize`
+降采样；编码走 `ImagePacker`；句柄在 `finally` 里 `release` / `close`。
+
+**优点**：接口、参数、耗时字段与 RN 端一一对应；降采样在解码阶段完成，12 MP
+图不会先展开再缩小；缩略图复用 `resizeFile`，与 RN 的 `resizeToWidth` 是同一
+份 C++ 缩放。
+
+**代价**：ArkTS 严格模式不能用 `any` / 结构化类型，桥接代码比 Kotlin 啰嗦；
+`PixelMap` 写回多一次 `writeBufferToPixels`；鸿蒙没有可用的模拟器/真机（§17），
+只能靠宿主 NAPI 测试 + 编译通过来验证。
+
+**规避**：NAPI 函数顺序、参数、错误码与 Android JNI 保持一致；可测的部分
+（内核、PdfWriter、H5 协议）都放到宿主侧跑。
+
+#### 4.1.13 鸿蒙 H5 编辑器 + `Index.ets` 桥
+
+**做法**：UI 是一份纯 HTML/CSS/JS（`rawfile/index.html`），布局与交互对照
+RN 的 `ScanEditorScreen`；ArkTS 注入 `nativeBridge`，H5 用
+`{id, op, ...}` 请求，ArkTS **串行**处理并通过 `window.__onNativeResult`
+回推。op 覆盖 `sample / pick / base / render / thumbs / warp / read / delete /
+pdf / saveImages / version`。图片用 data URL 显示，处理始终是文件路径。
+
+**优点**：鸿蒙不必重写一套 ArkUI 组件，H5 与 RN 可以逐项对照；算法仍在 C++，
+H5 不碰像素；只有一条请求/响应通道，加 op 很容易；`withData` 让非当前页
+不回传 base64。
+
+**代价**：多一层 WebView 协议与序列化；data URL 比 `file://` 多一次 base64，
+大图预览有几十毫秒开销；ArkWeb 对沙盒 `file://` 的支持不可靠，只能走 data
+URL；调试要同时看 ArkTS 日志和 Web 控制台。
+
+**规避**：请求带 id + 超时；ArkTS 串行处理，避免并发解码把内存峰值放大；
+H5 只缓存当前页的图像数据；缩略图一次请求批量生成。
+
+#### 4.1.14 桌面端 C ABI + CLI + Electron
+
+**做法**：C ABI（`ic_*`）稳定、无异常、无全局状态；CLI 用 stb 解码，按扩展名
+编码；Electron 只 `spawn` CLI，渲染进程 `sandbox + contextIsolation`，
+`preload` 暴露少量 IPC。
+
+**优点**：算法可被 Python / Java / Qt 直接调用；UI 崩溃不拖垮算法；打包后
+目标机器不需要 Node / VC 运行库。
+
+**代价**：每次调用起一个进程（几十毫秒）；Electron 包体大；桌面与移动端
+UI 不共享。
+
+**规避**：CI 覆盖 C++ / CLI / Python / JNI 与 Electron 语法检查；动态库与
+CLI 放进 `resources/`。
+
+#### 4.1.15 路由与状态 `App.tsx`
+
+**做法**：联合类型 `Route` + `useState` 状态机，不引入导航库；文档/PDF 列表
+状态提升到根部，页面只拿 props。
+
+**优点**：路由就是数据，返回/恢复容易推理；没有导航依赖，Expo Go 里一致。
+
+**代价**：深链、手势返回、栈动画都要自己写；页面变多后 `App.tsx` 会变重。
+
+**规避**：暂只做单栈（ADR-6）；迁移路径见 §15.4。
+
+#### 4.1.16 取舍总表与被否决的方案
+
+| 决策 | 选择 | 主要收益 | 主要代价 |
+|---|---|---|---|
+| 算法放哪 | 共享 C++ | 四端一致、可宿主测试 | 每端一层桥 |
+| 原生失败怎么办 | WebView Canvas | Expo Go 可用 | base64 + 两套公式 |
+| 像素怎么传 | 文件 I/O | 无 base64、内存低 | 需要临时文件管理 |
+| 鸿蒙 UI | H5 + ArkWeb | 复用 RN 的交互设计 | 多一层协议 |
+| PDF | 原生优先 | 快、内存低 | 两套版式 |
+| 路由 | 状态机 | 简单、无依赖 | 无深链/手势返回 |
+| 缩略图 | 同一 C++ resize | 清晰、一致 | 每页多一次解码 |
+
+被否决的方案：
+
+- **纯 JS / Hermes 逐像素**：1 MP 要 1–2 分钟（§9.1），不可用；
+- **WASM**：多一份运行时和首包体积，而 C++ 已经可以直接连桥；
+- **每个平台各写一套算法**：短期快，长期必然漂移；
+- **鸿蒙用 ArkTS 原生 UI**：要重写全部交互，和 RN 的 UI 也无法逐项对照；
+- **索引放 SQLite**：数据量很小，JSON 更易读、易迁移；
+- **把预览图也常驻成 base64**：30 页会多占约 10 MB JS 堆，按需回传即可。
 
 ---
 
@@ -100,7 +381,8 @@ ArkWeb(H5) ──javaScriptProxy──► Index.ets ──► ImageCoreService.e
 | 来源 | 实现 | 拿到的 URI |
 |---|---|---|
 | 拍照 | `CameraView.takePictureAsync({ quality: 0.9 })` | 缓存目录文件 URI |
-| 相册 | `ImagePicker.launchImageLibraryAsync` | `file://` 或 `content://` |
+| 相册（扫描） | `PhotoPickerScreen`：`MediaLibrary.getAssetsAsync` 分页列图，`getAssetInfoAsync` 取 `localUri` | 缓存目录 `file://`（异常时退回 `content://`） |
+| 相册（PDF） | `ImagePicker.launchImageLibraryAsync`（旧路径，未迁移） | `file://` 或 `content://` |
 | 示例 | `Asset.fromModule(require(...))` + 原生复制 | 缓存目录 `file://` |
 
 示例资源在独立安装包里的处理见 §12.3。
@@ -147,24 +429,35 @@ filter effect（依赖 currentUri / filter）
 
 保存时如果 `processed.key === filter` 复用结果，否则重新跑一次滤镜，避免拿旧图保存。
 
-### 5.4 保存与历史
+### 5.4 导出与退出
+
+扫描编辑器是「一次性导出」工具，不再往应用内文档库写入 `ScanDoc`：
 
 ```
-handleSave
-  ├─ original → readBase64(currentUri)
-  ├─ native   → readBase64(processed.uri)
-  ├─ canvas   → 去掉 data URL 前缀
-  └─ onSave({ base64, filter, title })
-       ├─ persistImage(base64, id)   // documentDirectory/scans/<id>.jpg
-       ├─ ScanDoc 插入列表头部
-       ├─ AsyncStorage.setItem('scans.index.v1', JSON)
-       └─ 回到首页
+ScanEditorScreen 顶栏「分享」
+  └─ generatePdf(pages) → 沙盒 <draftId>/<文档名>.pdf → Sharing.shareAsync
+
+ScanEditorScreen 「保存所有图片」
+  └─ 逐页 MediaLibrary.saveToLibraryAsync(page.uri)，带 x/n 进度
+
+ScanEditorScreen 「保存成 PDF」
+  └─ generatePdf → savePdfToUser()（Android SAF / iOS 分享面板）
+
+ScanEditorScreen 顶栏「返回」
+  └─ 确认「返回并放弃编辑？」→ onCancel(draftId)
+       └─ discardScanDraft(draftId)   // 删除 scans/<draftId>/ 整个目录
 ```
+
+顶栏中间的文档名可编辑，默认取第一张图片的文件名（`titleFromUri`，相册的
+`filename` 优先于 URI 末段）；生成 PDF 时的文件名、保存到相册后的分享标题
+都用它。旧的 `scans.index.v1` 与「最近扫描」列表仍可读取/删除历史文档，
+但新流程不再新增记录。
 
 ### 5.5 导出
 
 `DocumentScreen` 用 `expo-media-library/legacy` 的
-`requestPermissionsAsync(true)` + `saveToLibraryAsync(doc.uri)`。
+`requestPermissionsAsync(true)` + 逐页 `saveToLibraryAsync(page.uri)`，
+用本地计数生成「已导出 x / n 页」的结果提示。
 
 ### 5.6 图片转 PDF
 
@@ -200,7 +493,7 @@ PdfScreen
 
 **三种算法模式**：自动（导入时使用 `defaultFilter`）/ 手动（✎ 只改一页）/
 原图（`defaultFilter = 'original'`，或「全部恢复原图」）。三者都只写
-`PdfPage.uri` 与 `filter`，`originalUri` 保持不变。
+`DocPage.uri` 与 `filter`，`originalUri` 保持不变。
 
 **页数自适应**（`pdfLimits.ts`）：`Device.totalMemory` 分档到 15/25/35/50/60 页，
 Android 再用 `Device.getMaxMemoryAsync()`（JVM 堆）收紧到最多 10/15/25/35/60 页，
@@ -226,7 +519,7 @@ PdfScreen ✎ → EditorScreen(sourceUri = page.originalUri,
         │    → 写 pdfs/<id>/edited/<pageId>_<ts>.jpg
         ├─ 重新生成缩略图（.tmp → 原子替换）
         ├─ 删除旧的派生图（originalUri 永不删除）
-        └─ 更新 PdfPage → updatedAt 变化 → 回到 PdfScreen → 提示重新生成
+        └─ 更新 DocPage → updatedAt 变化 → 回到 PdfScreen → 提示重新生成
 ```
 
 非破坏式模型的三个不变量：
@@ -244,6 +537,85 @@ PdfScreen ✎ → EditorScreen(sourceUri = page.originalUri,
 批量对每页传入 `{ filter: defaultFilter, rotation: page.rotation }`，
 所以结果与逐页手动操作完全一致，且重复执行不会叠加编码损失。批量过程逐页
 串行，中间结果及时释放；取消时把已完成页一次性落库。
+
+### 5.8 多页扫描：选择 → 编辑 → 继续导入
+
+```
+首页「导入图片」
+  └─ PhotoPickerScreen（新建、独立路由）
+       ├─ requestPermissionsAsync → getAssetsAsync({ mediaType:'photo',
+       │     sortBy:[['creationTime', false]], first: 60 })
+       ├─ 点选：selected 数组按选择顺序追加，格子上显示 index+1
+       ├─ 划选：横向滑过一串格子批量选中/取消（PanResponder 捕获横向手势，
+       │     按起止格子线性补区间；从已选格子起手则整段取消）
+       ├─ 预览：已选图片全屏分页（initialScrollIndex + getItemLayout）
+       ├─ onEndReached → after: endCursor 续页，按 id 去重
+       └─ 完成：逐张 getAssetInfoAsync → localUri，并带上 asset.filename
+                → onDone(uris, names)
+
+App.goScanEditor(uris, names[0])
+  └─ route = { scanEditor, draftId: Date.now(), sourceUris,
+                title: titleFromUri(第一张的文件名) }
+       └─ ScanEditorScreen(key = draftId)
+            ├─ 顶栏：返回 ｜ 可编辑文档名 ｜ 分享
+            │     文档名默认取第一张图片的文件名，可改；作为 PDF 文件名
+            │     BackHandler 先让输入框失焦，再走裁剪/返回确认
+            ├─ mount：importScanPages(draftId, initialUris,
+            │     { filter: 'enhance', signal, onProgress })
+            │       └─ importPages()（pageStore.ts，扫描/PDF 共用）
+            │            resize → JPEG → scans/<id>/src/<pageId>.jpg   // originalUri
+            │            滤镜 → scans/<id>/edited/<pageId>.jpg          // uri
+            │            220px 缩略图 → scans/<id>/thumb/<pageId>.jpg
+            │            单张失败回退原图，全部失败才报错并回滚已写文件
+            ├─ 「继续导入」→ pickerOpen：在编辑器上层渲染同一个
+            │     PhotoPickerScreen（limit = pageLimit - pages.length）
+            │     完成 → addImages(uris, selectFirst=true) 追加到末尾
+            ├─ 翻页：水平滑动（PanResponder，阈值 48px）或 ◀ / ▶
+            ├─ 页码行右侧：「原图|对比」按钮（带分割图标，按住看原图），
+            │     与 ◀ 页码 ▶ 同一水平线，位于「应用到所有页」上方
+            ├─ 算法方块：SCAN_FILTERS（src/lib/filters.ts）→ 缩略图
+            │     缩略图输入 = 当前页（含旋转）缩到 260px 的临时 JPEG，
+            │     applyFilter 逐张出图（原生→文件 / Canvas→data URI），
+            │     按 (pageId:rotation:source) 缓存，切页/裁剪/卸载删临时文件
+            ├─ 点第一次：runEdits → renderPageBase64 → saveScanPage
+            │     点第二次（同一算法）：进入微调面板
+            │     微调预览：900px 中图 + applyFilter(..., adjust)
+            │     确认：runEdits 写全尺寸结果
+            ├─ 「应用到所有页」（默认勾选）：targets = pages，逐页串行重渲染
+            ├─ 裁剪：CropOverlay（4 角点圆圈 + 4 边中点长条；就近抓取；
+            │     触摸区域比图片外扩 CROP_GRAB_PAD，贴边手柄才能按到）
+            │     放大镜由页面在最外层画（CropLoupe），跟手 1:1、可超出图片
+            │     非凸四边形 → 边框变红 + 「无效区域」提示 + 确定禁用
+            │     确定 → 原生 warpFile（文件进/文件出）→ 拷贝进 src/ → 重跑当前算法
+            │            （Expo Go 无原生库时才走 warpWithCanvas + base64）
+            ├─ 图像右上角 ✕：确认框「删除此页 / 重拍此页 / 取消」
+            │     重拍 → picker(limit=1) → 新图替换该页源图，随后按原算法重渲染
+            ├─ 旋转：通过 pagesRef 串行提交
+            ├─ 保存所有图片：逐页 uri → MediaLibrary（显示已保存 x/n）
+            ├─ 保存成 PDF：generatePdf(pages.uri) → savePdfToUser()
+            │     Android：SAF 选文件夹（ACTION_OPEN_DOCUMENT_TREE）→ File.copy
+            │     iOS：expo-sharing（含「存储到文件」）
+            │     保存成功后可再走分享面板
+            ├─ 分享：generatePdf(pages.uri) → Sharing.shareAsync
+            └─ 返回：确认「返回并放弃编辑？」→ onCancel → 删草稿目录
+```
+
+关键点：
+
+- **选择顺序即文档页序**：`selected` 是数组，不排序；取消选择会重排后续编号。
+- **先落盘再编辑**：进编辑器前图片已按目标尺寸写进草稿目录，之后的算法/旋转
+  只重渲染并原子替换派生的 `edited/` 文件，`originalUri` 永不改。
+- **算法清单只有一处**：`src/lib/filters.ts` 的 `FilterKey` / `FILTER_LABELS` /
+  `SCAN_FILTERS` 决定界面展示哪些算法、顺序和名称；UI 不再写死数组。
+- **继续导入复用同一组件**：选择器作为编辑器的浮层子组件渲染，不经过系统
+  Activity，返回键/取消不会让编辑器卸载，已导入页面不会丢。
+- **文件名带时间戳**：每次保存派生图都写 `<pageId>_<ts>.jpg` 再删旧文件，
+  避免 Fresco 按 URI 命中旧缓存。算法缩略图是缓存目录里的临时文件（原生路径）
+  或 data URI（Canvas 兜底），只在编辑器存活期间有效。
+- `pagesRef` 与 `setPages` 同步更新，异步导入/编辑回调始终基于最新数组提交；
+  `busy` 非空时翻页、算法、工具按钮禁用，导入可取消。
+- 微调参数存 `DocPage.adjust`；`savePageEdit` 只在旋转/算法/微调任一非默认时
+  才重新编码，`filter=original && adjust=0 && rotation=0` 直接复用原图。
 
 ---
 
@@ -270,29 +642,54 @@ Alpha 约定：滤镜只改 RGB，A 原样保留。iOS 使用预乘 alpha，不�
 
 ```cpp
 namespace image_core {
-enum Filter : int32_t { kOriginal = 0, kGray = 1, kBw = 2, kEnhance = 3 };
+enum Filter : int32_t {
+  kOriginal = 0, kGray = 1, kBw = 2, kEnhance = 3,
+  kShadow = 4, kDehand = 5, kHd = 6, kBrighten = 7,
+  kSharpen = 8, kInkSave = 9, kInvert = 10,
+};
 void process_pixels(uint32_t* pixels, int32_t width, int32_t height, int32_t filter);
+void process_pixels_ex(uint32_t* pixels, int32_t width, int32_t height, int32_t filter,
+                       int32_t contrast, int32_t brightness, int32_t detail);
+
+// 几何变换：warp（四角裁剪）/ resize / rotate
+void warp_output_size(int32_t src_w, int32_t src_h, const float quad[8],
+                      int32_t max_dim, int32_t* out_w, int32_t* out_h);
+void warp_pixels(const uint32_t* src, int32_t src_w, int32_t src_h,
+                 uint32_t* dst, int32_t dst_w, int32_t dst_h, const float quad[8]);
+void resize_output_size(int32_t src_w, int32_t src_h, int32_t max_dim,
+                        int32_t* out_w, int32_t* out_h);
+void resize_pixels(const uint32_t* src, int32_t src_w, int32_t src_h,
+                   uint32_t* dst, int32_t dst_w, int32_t dst_h);
+void rotate_pixels(const uint32_t* src, int32_t src_w, int32_t src_h,
+                   uint32_t* dst, int32_t degrees);
+
 const char* version();
 }
 ```
 
 - `pixels == nullptr` 或宽高非正：直接返回。
 - 未知 filter：按 original 处理。
-- `version()` 当前返回 `image-core/0.1.0`。
+- `process_pixels` 等价于 `process_pixels_ex(..., 0, 0, 0)`，保留旧 ABI。
+- 几何变换不分配内存：先调 `*_output_size` 拿目标尺寸，调用方分配 `dst` 再调 `*_pixels`。
+- `version()` 当前返回 `image-core/0.3.0`。
 
 ### 6.3 filter id 的跨端一致性
 
 字符串到 id 的映射在四个地方重复（Android Kotlin、iOS Swift、鸿蒙 ArkTS、Canvas JS），
 这是当前设计中最容易漂移的点：
 
-| 字符串 | id |
-|---|---|
-| `original` | 0 |
-| `gray` | 1 |
-| `bw` | 2 |
-| `enhance` | 3 |
+| 字符串 | id | 字符串 | id |
+|---|---|---|---|
+| `original` | 0 | `brighten` | 7 |
+| `gray` | 1 | `sharpen` | 8 |
+| `bw` | 2 | `inksave` | 9 |
+| `enhance` | 3 | `invert` | 10 |
+| `shadow` | 4 | | |
+| `dehand` | 5 | | |
+| `hd` | 6 | | |
 
-跨端契约脚本会检查这些字面量。
+跨端契约脚本会检查这些字面量。新增算法时**四处都要改**，否则该平台会静默
+退回原图（`filterId` 的 default 分支）。
 
 ---
 
@@ -349,17 +746,90 @@ if (lum > 165) {
 `lum > 165` 是纸面/墨迹的经验分界。临界点两侧的输出不连续，所以原生与 Canvas
 在 `lum ≈ 165` 附近可能差到 24（见 §13），这是算法本身的分段特性，不是实现 bug。
 
-### 7.5 原图（original）
+### 7.5 文档类算法（shadow / dehand / hd / brighten / sharpen / inksave / invert）
+
+这些算法都是逐像素 + 可分离盒式模糊，C++ 与 Canvas 使用同一套公式：
+
+| key | 名称 | 做法 |
+|---|---|---|
+| `shadow` | 去阴影 | 亮度做半径 `max(6, min(w,h)/8)` 的局部背景模糊，`gain=min(3.5, 235/max(bg,24))` 后逐通道相乘 |
+| `dehand` | 去除手写 | `mx>70 && (mx-mn)/mx>0.32` 判为彩色笔迹，直接涂白（启发式，不通用于彩色印刷物） |
+| `hd` | 高清 | 1%/99% 分位亮度拉伸，再以半径 2、强度 0.55 做亮度反锐化 |
+| `brighten` | 增亮 | `255-(255-c)*0.76`；亮度 >205 的像素再向白色推 |
+| `sharpen` | 增强锐化 | 半径 1、强度 1.0 的亮度反锐化 |
+| `inksave` | 省墨 | `45 + c*210/255`，压缩动态范围、保留可读性 |
+| `invert` | 反色 | `255-c` |
+
+`box_blur` 是可分离滑动窗口（O(N)，与半径无关）；`unsharp` 只处理亮度差，
+再同量加到 RGB，避免通道间出现彩边。
+
+### 7.6 第二步微调（adjust）
+
+`process_pixels_ex(pixels, w, h, filter, contrast, brightness, detail)` 在算法之后执行：
+
+```
+brightness: c' = c + brightness * 2.55
+contrast:   c' = (c' - 128) * (259*(C+255)) / (255*(259-C)) + 128,  C = contrast * 2.55
+detail:     亮度反锐化，半径 1，强度 detail/100 * 1.2
+```
+
+范围：`contrast/brightness ∈ [-50,50]`，`detail ∈ [0,100]`；桥接层与 JS 都会夹紧。
+旧的 `process_pixels` 保留，等价于 `process_pixels_ex(...,0,0,0)`，
+因此旧原生库仍可加载（JS 侧用 `processFileEx?` 判断）。
+
+### 7.7 四角透视裁剪（warp）
+
+共享 C++ 的 `warp_output_size` / `warp_pixels`：先用四点对应关系解 8×8
+单应矩阵（高斯消元，与旧 Canvas 实现同一套公式），把目标矩形的每个像素
+反向映射到源四边形，做双线性采样，越界填白。
+
+- 输出宽取 `|TL-TR|` 与 `|BL-BR|` 的较大者，高取 `|TL-BL|` 与 `|TR-BR|` 的较大者；
+  最长边超过 `maxDim`（1600）时整体等比缩小。
+- 采样用整数像素下标而不是像素中心，和旧 Canvas 版逐像素一致：
+  整图裁剪时输出与源图完全相同，边缘也不会因为采样到图外而出现白边。
+- 非凸四边形在 UI 层就被拦下（红色边框 + 「确定」不可用），C++ 只保证不崩溃。
+
+坐标约定：归一化到**当前显示方向**的原图（`originalUri` + 页面 rotation），
+顺序 TL → TR → BR → BL；`crop.ts` 的 `quadToArray()` 直接给出桥接层要的 8 个数。
+
+裁剪确认后：
+
+1. 原生 warp 结果先落在缓存目录，再 `copyAsync` 成新的
+   `src/<pageId>_crop_<ts>.jpg`——**不经过 base64**；
+2. 旋转已经烘焙进像素，页面 `rotation` 归零；
+3. 若原页面有算法/微调，基于新原图重新渲染一次 `edited/`；
+4. 旧原图与旧派生图删除——裁剪是唯一不可回放的编辑。
+
+Expo Go 没有原生模块时才退回 Canvas 的 `warpWithCanvas()`（base64 进出），
+这条路径只用于兼容，不再是大图裁剪的默认实现。
+
+### 7.8 缩放与旋转（resize / rotate）
+
+- `resize_output_size` / `resize_pixels`：等比缩到最长边 `maxDim`，**不放大**
+  （未超限时原样返回尺寸，只重新编码）；缩小走盒式平均（目标像素取源图对应
+  区块均值，降采样不锯齿），放大走双线性。
+- `rotate_pixels`：只支持 90 / 180 / 270 顺时针；90 / 270 交换宽高，
+  180 是内存逆序复制。与 `expo-image-manipulator` 的 `rotate`（正数顺时针）同向。
+- JS 侧 `imagePipeline.resizeImage` / `rotateImage` 优先进原生，
+  `expo-image-manipulator` 只在 Expo Go 里兜底。
+- 缩略图（列表 220 px 宽）走 `resizeToWidth()`：JS 只把「按宽缩放」换算成目标
+  最长边，像素处理仍交给同一个 `resize_pixels`。导入、保存、裁剪后的缩略图
+  都因此不再调用 `expo-image-manipulator`，整条图片处理链只保留一份 C++ 实现。
+
+### 7.9 原图（original）
 
 C++ 空操作；JS 直接返回输入。保留该枚举是为了契约完整和 UI 一致性。
 
-### 7.6 复杂度
+### 7.10 复杂度
 
 | 滤镜 | 时间 | 额外内存 |
 |---|---|---|
 | gray | O(N) | O(1) |
 | bw | O(N) + O(256) | 1 KB 直方图 |
 | enhance | O(N) | O(1) |
+| shadow / hd / sharpen / detail | O(N)（盒式模糊可分离，与半径无关） | 2 个单通道缓冲 |
+| 其他 | O(N) | O(1) |
+| warp | O(W·H) | 源图 RGBA 一份 + 输出一份 |
 | original | O(1) | 0 |
 
 ---
@@ -383,8 +853,18 @@ C++ 空操作；JS 直接返回输入。保留该枚举是为了契约完整和 
 计时用 `SystemClock.elapsedRealtime()`，分 decode / process / encode 三段，
 `totalMs` 从函数入口算起。
 
-JNI 错误码：`-1` 参数非法、`-2` 数组长度不足、`-3` 取指针失败；Kotlin 侧
-`check(result == 0)` 抛异常给 JS。
+几何变换是同一套流程的变体：
+
+- `warpFile(input, output, quad: List<Double>, quality, maxDim)`：先
+  `nativeWarpSize` 拿输出尺寸，再 `nativeWarp` 逐像素反查；`quad` 长度必须为 8。
+- `resizeFile(input, output, maxDim, quality)`：`nativeResizeSize` → `nativeResize`。
+- `rotateFile(input, output, degrees, quality)`：角度规整到 90/180/270，
+  90/270 由 JNI 侧交换宽高后调 `nativeRotate`。
+- 三者都不经过 base64：输入输出都是文件，复制/删除由 JS 负责。
+
+JNI 错误码：`-1` 参数非法、`-2` 数组长度不足、`-3` 取指针失败
+（几何函数里 `-3` 是 `quad` 长度不足）；Kotlin 侧 `check(result == 0)` 抛异常给 JS。
+只读的源像素用 `ReleaseIntArrayElements(..., JNI_ABORT)` 释放，省掉一次写回拷贝。
 
 CMake 以 `-O3`、`-fvisibility=hidden`、`--gc-sections` 编译共享库；
 ABI 由 `reactNativeArchitectures` 决定（默认四个）。
@@ -401,26 +881,120 @@ ABI 由 `reactNativeArchitectures` 决定（默认四个）。
 5. `context.makeImage()` → `UIImage.jpegData(compressionQuality: quality/100)`；
 6. `Data.write(to:options:.atomic)`。
 
-`decodeMs` 只覆盖 `UIImage` 加载；`CGContext.draw` 的耗时计入 `totalMs` 但不属于
-任何一段，这是与 Android 口径的细微差别。
+`decodeMs` 在 `context.draw(...)` **之后**取值，把「加载 + 真正转成 ARGB 位图」
+都算进解码，与 Android 的 `decodeFile` 口径一致；adjust 全为 0 时走
+`ImageCoreProcessPixels`（与 Android 的 `nativeProcessPixels` 分支相同），
+否则走 `ImageCoreProcessPixelsEx`。
+
+几何变换共用 `decodePixels()` / `writeJpeg()` 两个私有方法（缓冲区格式与
+`processFile` 完全一致），C 桥在 `ImageCoreBridge.h` 里导出
+`ImageCoreWarpSize` / `ImageCoreWarp` / `ImageCoreResizeSize` /
+`ImageCoreResize` / `ImageCoreRotate`；`.mm` 里把 `double quad[8]` 转成
+`float[8]` 后转调共享内核。上桥的坐标是归一化的，和 Android 完全相同。
+
+`createPdf` 与 Android 的 `decodeForPdf` 对齐：先按
+`max(pageWidth, pageHeight) * 2` 计算像素上限，用 ImageIO 的
+`CGImageSourceCreateThumbnailAtIndex`（带 `kCGImageSourceCreateThumbnailWithTransform`，
+顺带应用 EXIF 方向）**逐页**降采样解码，一页画完就释放；早期版本用
+`UIImage(contentsOfFile:)` 一次把全部页面解成全尺寸位图，30 页 12 MP 会直接
+把内存打满。页面尺寸用 `CGImage` 的像素宽高，而不是 `UIImage.size` 的点。
 
 `ImageCore.podspec` 把 `../common/*.{h,hpp,cpp}` 一起编进 pod，`static_framework = true`。
+本机是 Windows，iOS 侧只能由 `.github/workflows/ios-unsigned-ipa.yml`
+（macos-26，Swift tools 6.2）编译验证。
 
 ### 8.3 HarmonyOS
 
-- **NAPI 注册**：`napi_init.cpp` 导出 `version()` 与
-  `processPixels(buffer, width, height, filter)`；校验参数个数、ArrayBuffer、
-  `width/height > 0`、`byteLength >= w*h*4`，失败抛 `TypeError` / `RangeError`。
-  模块名 `image_core`，与 `import imageCore from 'libimage_core.so'` 对应。
-- **解码/编码**：`ImageCoreService.ets` 用 `image.createImageSource(fd)` 解码，
-  请求 `BGRA_8888`；`readPixelsToBuffer` 得到 `ArrayBuffer`；NAPI 原位修改；
-  `writeBufferToPixels`；`ImagePacker.packing(pixelMap, {format:'image/jpeg',
-  quality})`；最后写文件。所有句柄在 `finally` 里 `release/close`。
-- **UI**：`Index.ets` 用 `<Web src=$rawfile('index.html')>`，通过
-  `javaScriptProxy` 注入 `dispatch` / `version`；启动时把 `rawfile/sample.jpg`
-  复制到 `cacheDir`，页面加载完用 `runJavaScript` 调 `window.__init(path)`。
-- **协议**：H5 发 JSON `{id, input, output, filter, quality}`；ArkTS 处理完用
-  `window.__onNativeResult(result)` 回推。刻意不用 Promise 跨 JS Proxy 返回。
+**NAPI 注册**：`napi_init.cpp` 与 Android 的 JNI 一一对应，导出 8 个函数：
+
+| 函数 | 说明 |
+|---|---|
+| `version(): string` | `image-core/0.3.0` |
+| `processPixels(buf, w, h, filter): number` | 滤镜原地处理 |
+| `processPixelsEx(buf, w, h, filter, contrast, brightness, detail): number` | 滤镜 + 微调（-50..50 / 0..100） |
+| `warpSize(srcW, srcH, quad, maxDim): number[]` | 透视裁剪输出尺寸 `[w,h]` |
+| `warpPixels(src, srcW, srcH, dst, dstW, dstH, quad): number` | 透视裁剪 |
+| `resizeSize(srcW, srcH, maxDim): number[]` | 等比缩放输出尺寸 |
+| `resizePixels(src, srcW, srcH, dst, dstW, dstH): number` | 箱式平均/双线性缩放 |
+| `rotatePixels(src, srcW, srcH, dst, degrees): number` | 顺时针 90/180/270 |
+
+- 所有 buffer 参数必须是 `ArrayBuffer`，长度不足抛 `RangeError`；
+  `quad` 既接受 `Float64Array` 也接受普通 `number[8]`；
+- 参数个数、类型、宽高、角度都在 NAPI 层校验，错误码与 JNI 相同
+  （`-1` 参数非法、`-2` 长度不足、`-3` 取指针失败）；
+- 模块名 `image_core`，对应 `import imageCore from 'libimage_core.so'`。
+
+**解码/编码**：`ImageCoreService.ets` 用 `image.createImageSource(fd)` 解码，
+请求 `BGRA_8888`；`readPixelsToBuffer` 得到 `ArrayBuffer`；NAPI 原位修改；
+`writeBufferToPixels`；`ImagePacker.packing(pixelMap, {format:'image/jpeg',
+quality})`；最后写文件。所有句柄在 `finally` 里 `release/close`。`maxDim > 0`
+时先读源尺寸，用 `desiredSize` 在**解码阶段**降采样，避免 12 MP 全展开。
+
+**UI 与桥**：`Index.ets` 用 `<Web src=$rawfile('index.html')>`，通过
+`javaScriptProxy` 注入 `dispatch` / `version`；页面加载完用 `runJavaScript`
+调 `window.__onNativeReady()`。协议是单向请求 + 回推：
+
+```
+H5                                  ArkTS (NativeBridge)
+ │ nativeBridge.dispatch(JSON)  ───►│ 串行队列
+ │   {id, op, input, ...}           │  op 分发到 ImageCoreService / PdfSave
+ │                                  │  解码 → C++ → 编码 → 文件
+ │◄── window.__onNativeResult({...})│  data URL 只在需要显示时回传
+```
+
+op 一览：`sample`（把 rawfile 示例写进缓存并导入）、`pick`（系统相册多选）、
+`base`（取旋转后的底图）、`render`（滤镜 + 微调）、`thumbs`（260 px 基准图
+一次生成 11 个算法缩略图）、`warp`（透视裁剪）、`read`（只读文件成 data URL）、
+`delete`、`pdf`、`saveImages`、`version`。
+
+**H5 编辑器**：`rawfile/index.html` 是 RN `ScanEditorScreen` 的逐项对照实现：
+顶部返回 / 文档名 / 分享，舞台 + 页码 + 按住看原图，11 个算法缩略图条，
+对比度/亮度/细节滑杆，继续导入 / 左转 / 右转 / 裁剪 / 提取文字，保存所有图片 /
+保存成 PDF；裁剪层同样是四角圆点 + 四边中点长条、64 px 就近抓取、非凸变红、
+100 px / 2.6× / 88 px 偏移的放大镜。
+
+**为什么不用 Promise 跨 Proxy 返回**：`javaScriptProxy` 的方法返回值经过
+ArkWeb 的序列化，Promise 不可靠；统一走 `runJavaScript` 回推，错误也能作为
+`{ok:false, error}` 返回。
+
+**为什么用 data URL 显示**：ArkWeb 对沙盒 `file://` 的访问取决于
+`fileAccess` 与来源，不能保证可读；算法处理始终用文件路径，只有当前页的
+预览/缩略图读成 data URL。
+
+**PDF**：`PdfWriter.ets` 解析 JPEG 的 SOF 取宽高，把原始 JPEG 字节以
+`/DCTDecode` 嵌进 PDF（不重编码）；`PdfSave.ets` 统一「先写缓存 → 系统保存框
+→ 拷贝 → 清理」，`PdfPage.ets` 与 H5 桥共用这一份逻辑。
+
+### 8.4 桌面端（Windows / macOS / Linux）
+
+桌面不需要 RN，直接在 `common/` 外面加一层稳定的 **C ABI**：
+
+```c
+const char* ic_version(void);
+int32_t ic_process_argb32(uint32_t*, int32_t w, int32_t h, int32_t filter);
+int32_t ic_process_rgba(uint8_t*, int32_t w, int32_t h, int32_t filter);
+```
+
+- `ic_process_argb32` 就是 §6.1 的内存布局，和 Android/iOS/鸿蒙完全一致。
+- `ic_process_rgba` 接收行优先 `R,G,B,A` 字节，内部交换 R/B 后复用同一个内核，
+  因此 Python `bytearray`、Java `byte[]`、Qt `QImage::Format_RGBA8888` 都能零拷贝
+  传入。`original` 直接在入口短路返回，不碰缓冲区。
+- 返回码：`IC_OK(0)` / `IC_ERR_ARGUMENT(-1)` / `IC_ERR_FILTER(-2)`；不抛异常、
+  不分配内存、无全局状态，可并发调用。
+- 构建产物：`image_core.dll|dylib|so`（C ABI + JNI 编进同一个库）和命令行
+  `imagecore`（stb 解码 + 同样的 C ABI + 按扩展名编码）。JNI 只编入不链接
+  `libjvm`，所以 Python `ctypes.CDLL` 加载时不需要 JVM。
+- 详见 [modules/image-core/desktop/README.md](../modules/image-core/desktop/README.md)。
+
+桌面界面用 Electron（`desktop/electron/`）而不是 RN：主进程 `spawn` 上面那个
+命令行，渲染进程 `contextIsolation + sandbox`，只经 `preload.js` 暴露几个 IPC，
+不引入任何原生 Node 模块。这样 UI 的崩溃面与算法隔离，换 UI 框架也不用动算法。
+打包（`npm run package`）把 `imagecore` 和动态库放进 `resources/`，目标机器
+不需要 Node、不需要 C++ 运行库。
+
+CI 在 `ubuntu-latest` / `macos-latest` / `windows-latest` 上跑 C++ 自检、CLI
+四滤镜、Python ctypes 与 Java JNI 四组用例，外加 Electron 三个脚本的语法检查
+（`.github/workflows/desktop-image-core.yml`）。
 
 ---
 
@@ -446,13 +1020,15 @@ RN                                    WebView
  │  source={html}                        │
  │◄──────────── {type:"ready"} ──────────│  或 onLoadEnd 兜底
  │                                       │
- │── postMessage({id,b64,filter}) ──────►│
+ │── postMessage({id,op,b64,filter,      │
+ │    contrast,brightness,detail}) ─────►│
  │   （1.5s 内没被处理则 injectJavaScript 再发一次）
- │                                       │ img.onload → 逐像素
- │                                       │ canvas.toDataURL(JPEG,0.9)
+ │                                       │ op='filter' → img.onload → 逐像素
+ │                                       │ op='warp'   → 单应变换 + 双线性
+ │                                       │ canvas.toDataURL(JPEG)
  │◄── {id,ok,dataUrl,ms,width,height} ───│
  │                                       │
- │  15s 启动超时 / 25s 单次超时           │
+ │  15s 启动超时 / 30s 单次超时           │
 ```
 
 - `ready` 同时由页面 `postMessage` 和 WebView `onLoadEnd` 触发，谁先到算谁。
@@ -471,6 +1047,8 @@ RN                                    WebView
 | 编码 | 平台 JPEG（质量 92） | `toDataURL('image/jpeg', 0.9)` |
 | 数据通道 | 文件，不经过 base64 | base64 字符串进出 |
 | alpha | 原样保留（iOS 预乘） | 原样保留 |
+| 微调 | `process_pixels_ex`（整数） | 同一公式的浮点实现 |
+| 四角裁剪 | C++ `warp_pixels`（默认） | Expo Go 兜底（同一套单应矩阵公式） |
 
 量化差异见 §13.2。
 
@@ -486,14 +1064,25 @@ RN                                    WebView
 type Route =
   | { name: 'home' }
   | { name: 'camera' }
-  | { name: 'editor'; sourceUri: string; title: string }
-  | { name: 'doc'; doc: ScanDoc };
+  | { name: 'picker'; title: string; returnTo: 'home' | 'camera' }
+  | { name: 'scanEditor'; draftId: string; sourceUris: string[]; title: string }
+  | { name: 'doc'; doc: ScanDoc }
+  | { name: 'pdf'; doc: PdfDoc }
+  | { name: 'pdfReader'; doc: PdfDoc; initialPage?: number }
+  | { name: 'pageEditor'; doc: PdfDoc; pageId: string; backTo?: 'pdf' | 'pdfReader' };
 ```
 
-没有 URL、没有深链、没有返回栈；四个页面互斥渲染。优点是实现小、状态直观；
-缺点是系统返回键没有接管、无法深链。迁移到 Expo Router 的路径见 §15.4。
+`scanEditor` 用 `key={draftId}` 挂载：同一份草稿再次进入时状态不串；
+相册选择器是独立路由（首页/相机入口）或编辑器的浮层（继续导入），两种用法
+共享 `PhotoPickerScreen`。
+
+没有 URL、没有深链、没有返回栈；各页面互斥渲染。优点是实现小、状态直观；
+缺点是没有统一的返回栈，返回键由各页面自己注册 `BackHandler`（选择器先关预览
+再退出，编辑器先弹「放弃本次导入？」）。迁移到 Expo Router 的路径见 §15.4。
 
 ### 10.2 编辑器状态
+
+`EditorScreen`（PDF 单页）：
 
 ```ts
 currentUri   // 已缩放的基础图
@@ -505,10 +1094,35 @@ error
 reqId        // 竞态保护
 ```
 
+`ScanEditorScreen`（导入编辑页）：
+
+```ts
+pages / pagesRef   // 多页状态，异步回调一律基于 ref 提交
+active             // 当前页索引（activeRef 供手势回调使用）
+docTitle           // 顶栏文档名（默认第一张图片文件名，可改）
+busy               // import | apply | pdf | export | crop | replace
+applyAll           // 「应用到所有页」
+compare            // 按住对比 → 显示 originalUri（含旋转）
+baseUri/baseCache  // 当前页 rotation 后的原图，裁剪/缩略图/预览共用
+thumbs/thumbCache  // 每个算法一张图（原生文件 / Canvas data URI），
+                   // 按 (id:rotation:source) 缓存并记录要清理的临时文件
+adjustOpen/draftAdjust/previewUri  // 第二步微调与实时预览
+cropMode/quad/     // 四角裁剪
+loupe              // CropOverlay：整层 PanResponder + 就近抓取（64 dp），
+                   // 触摸区比图片外扩 22 dp（贴边手柄才按得到）
+                   // 拖动时页面在最外层画 100 dp / 2.6x 放大镜（CropLoupe），
+                   // 镜心与手柄固定偏移 88 dp，不夹取 → 1:1 跟手不跳；
+                   // 超出图片的部分透明，只有图片区域被放大
+```
+
 关键点：
 
-- 切到 `original` 不清空 `processed`，预览直接用 `currentUri`；切回其他滤镜时重新计算。
-- `processing` 在选滤镜的事件处理器里立即置 true，避免“点完没反应”。
+- 所有算法 / 微调都从 `originalUri`（+ rotation）重算，不叠加压缩。
+- 微调预览使用 900 px 中图，只有确认时才写全尺寸结果；`previewSeq` 防止
+  连续拖动时旧结果覆盖新预览。
+- 算法缩略图是 260 px 小图逐个进原生（无原生库时进 Canvas），页切换/旋转后
+  按 key 复用；裁剪替换源图时清掉该页所有派生缓存和临时文件。
+- `busy` 在事件处理器里立即置位（避免“点完没反应”），并禁用会改状态的操作。
 - 出错时显示中文错误文案，保存失败不会卡在“保存中”。
 
 ### 10.3 页面职责
@@ -517,8 +1131,12 @@ reqId        // 竞态保护
 |---|---|
 | Home | 扫描三入口、图片转 PDF 入口、PDF 列表、文档列表、长按/按钮删除、空状态 |
 | Camera | 权限申请、取景框、快门、相册入口 |
+| PhotoPicker | 应用内相册：分页网格、点选 + 横向划选、按选择顺序编号、全屏预览、完成回调；`limit` 由调用方给 |
+| ScanEditor | 导入编辑页：批量/继续导入、滑动翻页、页码行按住对比、算法缩略图、第二步微调、应用到所有页、四角裁剪、旋转、删除/重拍此页、可编辑的 PDF 文档名、分享、全部页面保存到相册、保存成 PDF |
+| CropOverlay | 四角裁剪的手势层：角点圆圈、边中点长条；整层就近抓取（GRAB_RADIUS），触摸区外扩 `inset` 让贴边手柄可抓；非凸四边形边框变红 |
+| CropLoupe | 拖动时的放大镜：透明圆形视窗，镜心与手柄固定偏移、不夹取（1:1 跟手），只放大图片区域，界外透明 |
 | Editor | 预处理、滤镜切换、旋转、保存；`showPageTools` 时额外显示切边/批注/恢复原图 |
-| Document | 整图查看、导出相册、删除确认 |
+| Document | 逐页查看（缩略图条）、一次导出全部页、删除确认 |
 | Pdf | 选默认算法、多选添加（自动执行算法）、批量应用、「原图」重置、排序、移除、单页编辑入口、生成/重新生成/分享、进度与取消 |
 
 路由扩展（`App.tsx` 的 `Route`）：
@@ -542,24 +1160,47 @@ limits / busy`，每次改动都通过 `onUpdate` 回写 `App.tsx` 并落盘；`
 
 ```ts
 type ScanDoc = {
-  id: string;        // Date.now() 字符串
-  uri: string;       // 沙盒内整图 file://
-  thumbUri: string;  // demo 中与 uri 相同
-  filter: FilterKey;
+  id: string;          // Date.now() 字符串，同时是草稿/文档目录名
+  title: string;       // “导入图片 10-24 0852”
+  pages: DocPage[];    // 至少 1 页
   createdAt: number;
-  title: string;     // “示例文档 10-23 2327”
+  updatedAt: number;
+};
+
+// 扫描与 PDF 共用的页面结构（types.ts）
+type DocPage = {
+  id: string;
+  originalUri: string;  // 导入时写入，永不覆盖
+  uri: string;          // 当前显示/导出的版本
+  thumbUri: string;     // 220px 缩略图
+  filter: FilterKey;                  // 11 种算法之一（src/lib/filters.ts）
+  rotation: 0 | 90 | 180 | 270;
+  adjust?: PageAdjust | null;         // 第二步：contrast/brightness -50..50, detail 0..100
+  cropQuad?: DocumentQuad | null;     // 预留（手动裁剪会烘焙进 originalUri）
+  annotations?: PageAnnotation[];     // 预留
 };
 ```
 
+`adjust` 与 `cropQuad` 都是可选字段：旧索引没有它们时，
+`sanitizePage` 把 `adjust` 归零、`cropQuad` 置 null。
+`PageEdit`（保存参数）同样新增 `adjust`，`savePageEdit` 用
+`editNeedsRender()` 判断是否需要重新编码。
+裁剪会替换 `originalUri` 并把 `rotation` 归零；这是唯一会删除旧原图的路径。
+
 | 数据 | 位置 |
 |---|---|
-| 图片 | `FileSystem.documentDirectory + 'scans/<id>.jpg'` |
+| 页面文件 | `documentDirectory/scans/<id>/{src,thumb,edited}/<pageId>[_<ts>].jpg` |
+| 旧版单图 | `documentDirectory/scans/<id>.jpg`（仅读，迁移后不再写入） |
 | 索引 | AsyncStorage，key `scans.index.v1`，JSON 数组 |
 
-- `loadDocs` 解析失败返回空数组，不让坏索引阻塞启动。
-- `removeImage` 使用 `idempotent: true`，文件不存在也视为成功。
-- 索引先写列表再落盘；如果 `persistImage` 成功而 `saveIndex` 失败，会留下孤儿文件。
-  当前没有清理任务（见 §17）。
+- `loadDocs` 解析失败返回空数组，不让坏索引阻塞启动；每条记录经 `sanitizeDoc`
+  校验，`pages` 为空则丢弃。
+- **旧记录迁移**：v1 的 `{ uri, thumbUri, filter }` 在读取时就地变成 1 页
+  `{ originalUri: uri, uri, thumbUri, filter, rotation: 0 }`，原文件路径不变；
+  删除时按 `originalUri` / `uri` / `thumbUri` 去重删除，旧版 `<id>.jpg` 也会被清掉。
+- 草稿目录与正式文档同构：编辑器导入的半成品就在 `scans/<draftId>/` 下，
+  只有点「保存」才写索引；取消直接删目录，不需要逐个文件回滚。
+- 索引先写列表再落盘；`saveIndex` 失败仍可能留下孤儿目录（见 §17）。
 
 ### 11.1 PDF 数据模型
 
@@ -567,7 +1208,7 @@ type ScanDoc = {
 type PdfDoc = {
   id: string;
   title: string;
-  pages: PdfPage[];
+  pages: DocPage[];          // 与 ScanDoc.pages 同一结构
   uri: string | null;        // 生成的 PDF；未生成时为 null
   pageCount: number;
   createdAt: number;
@@ -576,16 +1217,8 @@ type PdfDoc = {
   defaultFilter: FilterKey;  // 新导入图片自动使用的算法
 };
 
-type PdfPage = {
-  id: string;
-  originalUri: string;       // 导入时写入，永不修改
-  uri: string;               // 当前参与生成的图（可能是 edited/）
-  thumbUri: string;          // 220px，列表专用
-  filter: FilterKey;
-  rotation: 0 | 90 | 180 | 270;
-  cropQuad?: DocumentQuad | null;      // 预留
-  annotations?: PageAnnotation[];      // 预留
-};
+// DocPage 见 §11：originalUri 永不修改，uri 是当前参与生成的图，
+// thumbUri 是 220px 列表缩略图
 ```
 
 目录布局（每个 PDF 一个自包含目录）：
@@ -614,10 +1247,14 @@ documentDirectory/pdfs/<pdfId>/
 
 ```
 原生模块可用？
-  ├─ 是 → processFile（文件路径）
+  ├─ 是 → processFile / warpFile / resizeFile / rotateFile（文件路径）
   └─ 否 → WebView Canvas（base64 data URL）
            └─ 引擎 15s 未就绪 / 单次 25s 超时 → 报错“滤镜处理失败”
 ```
+
+几何变换按能力探测：`isNativeGeometryAvailable()` 检查三个 `*File` 方法是否
+都存在。旧原生库（0.2.x）只有滤镜时，`resizeImage` / `rotateImage` 退回
+`expo-image-manipulator`，裁剪退回 Canvas，不会因为方法缺失直接报错。
 
 `ImageCoreModule.ts` 在模块加载时 `try { requireNativeModule('ImageCore') }`，
 失败只记录 `loadError`，不抛给调用方；`isImageCoreAvailable()` 决定走哪条路。
@@ -721,6 +1358,28 @@ vs 379 ms），因为 Canvas 的 JIT 对这段逐像素浮点循环同样很快�
   代码不再据此告警。
 - 单页编辑保存后生成独立 `edited/<pageId>_<ts>.jpg`，`originalUri` 未变。
 - 分享：`expo-sharing` 正常拉起系统分享面板（Bluetooth / Gmail / Save to Drive）。
+- 「保存成 PDF」（扫描编辑器）在 Android 9 模拟器上走 SAF：选 Downloads →
+  `/sdcard/Download/导入图片.pdf`，262,060 B，首字节 `%PDF-1.4`；顶栏改名后
+  再保存得到 `/sdcard/Download/Test_Doc.pdf`，993,847 B，`/Count 1`。
+  写入必须用新 API（`Directory.createFile` / `File.copy`）：旧 API 的
+  `writeAsStringAsync` 会用 `DocumentFile.canWrite()` 校验目标目录，而 Downloads
+  这类系统 provider 恒返回 false，会误报 `Location ... isn't writable`。
+- 顶栏「分享」：生成后 `Sharing.shareAsync` 拉起系统 `CHOOSER`（logcat 可见
+  `act=android.intent.action.CHOOSER`），不再复用底部「保存成 PDF」。
+- 底部「保存所有图片」：模拟器相册 `MediaStore` 新增
+  `p_<pageId>_<ts>.jpg`，提示「N 页已保存到系统相册。」
+- 裁剪手势：模拟器上从距角点约 18 dp 处按下也能抓住（就近抓取），拖动中
+  放大镜跟随手柄；边中点同样以长条中心放大。`重置` 回到整图四角。
+- 贴边手柄：默认整图四角时，四个角点和四条边中点全压在图片边界上。
+  触摸区域若与图片等大，`adb shell input swipe` 在这些点上完全收不到事件
+  （Android 只把触摸派发给命中自身边界的视图），表现为「拖不动」。
+  现在裁剪框容器向外扩 `CROP_GRAB_PAD`（22 dp），图片按像素尺寸内缩摆放，
+  `CropOverlay` 用 `inset` 偏移绘制与命中判定。修复后从边界正中按下即可拖动。
+- 放大镜透明区域：把左上角沿竖直方向拖动，镜心停在图片左边界上，
+  截图取样 x=20/60（镜内、图片外）为背景色 `#0b0d12`，x=130 起为放大后的纸面白，
+  确认镜外区域是透视的。
+- 非凸四边形：把右上角拖到左下方向后，四条边框变红、底部提示
+  「无效区域：四个点要围成凸四边形，边不能交叉或凹陷」，「确定」置灰。
 - Expo Go（无原生模块）走 base64 兜底：日志先出现
   `cannot copy print output ... retrying with base64`，随后 `[pdf] done`，
   说明沙盒限制已被兜底吸收。
@@ -741,11 +1400,88 @@ vs 379 ms），因为 Canvas 的 JIT 对这段逐像素浮点循环同样很快�
   只能切换到原生流式写入（鸿蒙端已在 `PdfWriter.ets` 实现，见
   [EDGE_DETECTION.md](EDGE_DETECTION.md) §6）。
 
+### 13.3.3 导入编辑器（Android 9 模拟器，2026-10-24）
+
+debug 构建 + 原生 ImageCore，一次导入 3 张 646×1400 截图：
+
+| 操作 | 实现 | 实测 |
+|---|---|---|
+| 导入自动增强 ×3 | 原生 `processFile` | 214 / 301 / 380 ms |
+| 算法缩略图 ×11 | 原生 `processFile`，输入 113×260 | 每张 3–57 ms，单页约 0.2 s 出齐 |
+| 第二步微调预览 | 原生 `processFileEx` 415×900 | 102 ms |
+| 微调保存（3 页） | 原生 `processFileEx` | 38–159 ms/页，全部约 0.3 s |
+| 应用到所有页 ×3 | 原生 `processFile` | 83 / 115 / 374 ms |
+| 裁剪透视校正 | 原生 `warp_pixels`（C++）1050×1400 → 1050×1400 | decode 21 / process 120 / encode 114 / total **284 ms** |
+| 旋转（右转 90°） | 原生 `rotate_pixels`（C++）1050×1400 → 1400×1050 | decode 8 / process 12 / encode 68 / total **118 ms** |
+| 保存到相册 | `MediaLibrary.saveToLibraryAsync` | 立即，弹出「已保存」 |
+| 生成 PDF（3 页） | 原生 `PdfDocument`（Android） | 784–926 ms，794 KB，`/Count 3` |
+
+- 裁剪是唯一破坏性操作：`warp_pixels` 直接写出新的源图文件（不再经过
+  base64），`copyAsync` 落进 `src/` 后按原算法和微调重新渲染；透视校正会改变
+  长宽比，`cropQuad` 因此清空。
+- 算法缩略图与微调预览在有原生库时全部走 native：缩略图输入是当前页缩到
+  260 px 的临时 JPEG，输出也是文件（不再拼 base64 data URI），因此缓存结构从
+  `Record<key, uri>` 变成 `{ uris, files }`，切页/裁剪/卸载时按 `files` 删除。
+- 只有 Expo Go（无原生库）才回退到「小图 base64 → WebView Canvas」，
+  缩略图每张 0.2–0.8 s、微调预览约 0.7 s，是性能兜底路径。
+- 缩略图、微调预览、裁剪在 Expo Go 里共用同一个 WebView canvas，全部走串行
+  队列，实测没有互相覆盖（日志里各任务的时间戳严格递增）。
+- warp 进 C++ 前是这条链上最慢的一步：同一张 646×1400 的图，Canvas 逐像素
+  双线性要 **5.6 s**，而 C++ `warp_pixels` 在 1050×1400 上只要 **284 ms**
+  （process 120 ms），其中大头是和 Canvas 版相同的解码/编码。Expo Go 里仍然
+  是 Canvas 路径（约 5.6 s），所以裁剪的耗时差异只在装了原生库的构建里消失。
+- 裁剪舞台四周留 26 dp（`CROP_INSET`）：手柄半径 22 dp，贴边时若不留白，
+  上/下手柄有一半落在舞台外，按不到。
+- 裁剪框的触摸容器再向图片外扩 22 dp（`CROP_GRAB_PAD = CROP_INSET - 4`）：
+  仅留白还不够——触摸区域必须真的比图片大，否则贴边手柄的外半截
+  连事件都收不到（见 §11 验证记录）。扩出的部分仍在舞台留白以内。
+
+#### PDF 分页修正
+
+初版 CSS 的 `.page` 只有 `page-break-after`，图片 `max-height` 又正好等于 A4
+高度；Android WebView 的亚像素取整把每个 section 撑到第二页，3 张图生成出
+**6 页** PDF，而 `numberOfPages` 始终报 4，从日志里看不出问题。改成固定
+595×842 的 `.page`（flex 居中 + `overflow: hidden` + 图片 `max-width/height:
+100%`）后，解析 PDF 得到 `/Type /Page` × 3，与请求页数一致。
+
+#### 原生 PDF 写入
+
+`expo-print` 的路径是「整份 HTML（含所有页的 base64）→ WebView 排版 → 打印」，
+3 页实测要 60–100 s，期间 JS 线程被占满，界面看起来像卡死。现在 ImageCore 增加
+`createPdf(inputPaths, outputPath, pageWidth, pageHeight)`：
+
+- Android：`android.graphics.pdf.PdfDocument`，逐页 `decodeFile`
+  （`inSampleSize` 把长边压到约 2× 页面尺寸）→ `drawBitmap` 居中铺满 → `writeTo`；
+- iOS：`UIGraphicsPDFRenderer` + `UIImage.draw(in:)`；
+- TS：`src/lib/pdf.ts` 优先调用它，失败（旧原生库 / Expo Go）才回落到 expo-print；
+- 页数直接由图片张数决定，不再有「3 张图 6 页」和 `numberOfPages` 虚报的问题。
+
+生成完成后先 `end()` 结束忙碌态，再弹系统保存框（Android：SAF 文件夹选择器；
+iOS：分享面板）。模拟器上系统面板本身要 3–5 s，之前这段时间仍显示「正在生成 PDF」，
+会被误认为卡住。
+
+「保存成 PDF」以前直接拉分享面板，用户看到的是 Bluetooth / Gmail / Save to Drive，
+不像「保存」；现在 Android 先让用户选文件夹（`src/lib/savePdf.ts`），保存成功后再
+提供「分享」按钮。写入用新 API 的 `File.copy`（原生流式拷贝），不经过 JS base64。
+
+#### 页码与「应用到所有页」
+
+- 页码行改成「左侧 flex 占位 + 中间 ◀ 页码 ▶ + 右侧 flex 占位」，中间那组
+  相对整行居中；上下移动页面的 ↑/↓ 已去掉。对比从图片浮层移到这一行右侧，
+  做成「分割图标 + 原图 | 对比」的胶囊按钮，按住显示原图、松开回到处理后。
+- 删除从工具栏移到图片右上角（✕）。点击弹三选一确认框：删除此页 /
+  重拍此页 / 取消；重拍会打开 `limit = 1` 的同一相册选择器，选中后原地替换
+  该页源图（`replacePageSource`），再按该页原算法/微调重渲染，页序不变。
+- 「应用到所有页」默认勾选。它之前「勾了不生效」的原因是事件回调闭包捕获了
+  旧 state：生成缩略图占用 JS 线程时，勾选后的重渲染还没提交，紧接着点算法
+  读到的仍是 `false`。现在用 `applyAllRef`（effect 同步）在
+  `handleFilterPress` / `confirmAdjust` 里读最新值。
+
 ### 13.4 测试矩阵
 
 | 项目 | 方式 | 结果 |
 |---|---|---|
-| WebView 引擎 | headless Edge 执行真实 HTML，11 项引擎 + 9 项 H5 | 20/20 |
+| WebView 引擎 | headless Edge 执行真实 HTML，11 项引擎 + 52 项 H5 编辑器 | 63/63 |
 | Android NAPI 桥 | `napi_init.cpp` 编为 Node 插件 | 10/10 + 12 MP 计时 |
 | iOS 桥 | `ImageCoreBridge.mm` 编到 Linux | 16/16 |
 | 跨端契约 | filter id、像素布局、字段、模块名 | 44/44 |
@@ -754,9 +1490,19 @@ vs 379 ms），因为 Canvas 的 JIT 对这段逐像素浮点循环同样很快�
 | Expo Go PDF | 无原生模块，base64 兜底 | 通过（自动重试并写盘） |
 | 自动算法 / 批量应用 | 模拟器 debug APK：导入 2 张 → 单页改黑白 → 批量改回增强 → 重启 | 通过（导入即增强、单页覆盖生效、批量前有覆盖提示、重启后状态保留） |
 | 页数自适应 | 模拟器 1.5 GB RAM / 384 MB 堆，看页脚与上限 | 通过（判定 15 页 / 1200 px；2 页 PDF 仍为 A4） |
+| 多页扫描 / 应用内选择器 | 模拟器 debug APK：选 2 张（序号 1、2）→ 全屏预览翻页 → 完成 → 编辑器导入 2 页 → 继续导入 1 张 → 第 3 页灰度 → 上移 → 删除第 2 页 → 保存 → 详情导出 2 页 | 通过（序号/预览/续页正确，追加与排序/删除同步，首页显示「2 页」，导出提示「2 页已导出」） |
+| 导入编辑器 | 模拟器 debug APK：导入 3 张 → 滑动/三角翻页 → 按住对比 → 11 个算法缩略图 → 去阴影 + 对比度 37 → 应用到所有页改黑白 → 裁剪（四角 + 四边，含透视）→ 继续导入 → 左转 | 通过 |
+| 原生几何（warp / rotate） | 模拟器 debug APK：示例文档 → 裁剪拖左上角 → 确定（C++ warp，输出 1050×1400，页面被替换、无报错）→ 右转 / 左转（C++ rotate，90°+270° 往返回到原状） | 通过（`warp total=284 ms`、`rotate 90° total=118 ms`） |
+| 编辑页顶栏 / 导出 | 模拟器 debug APK：标题默认取首图文件名（`s26`）→ 改成 `Test_Doc` → 分享（系统 CHOOSER）→ 保存所有图片（相册 +1）→ 保存成 PDF（SAF → `Download/Test_Doc.pdf`，`%PDF-1.4`）→ 返回（弹出放弃确认） | 通过 |
+| 划选 / 重拍 | 模拟器 debug APK：相册里横向划选一行 → 完成 → 图像右上角 ✕ → 重拍此页 → 选 1 张 → 完成 | 通过（一格起手整行选中、右上角 ✕ 三选一确认、重拍后该页源图与缩略图更新，页码不变） |
 | 鸿蒙 PDF | hvigor 编译 HAP + `PdfWriter.ets` 源码在宿主用 `fileIo` 桩运行 + `pdf-lib` 解析 | 13/13 字节校验（1/2 页）、独立解析 2 页 A4；未在真机/模拟器运行 |
+| 鸿蒙扫描编辑器 | hvigor 编译 HAP（ArkTS strict + CMake）+ 宿主 headless Edge 驱动 H5（mock `nativeBridge` 应答全部 op） | HAP `BUILD SUCCESSFUL`；H5 52/52（滤镜/微调/旋转/裁剪/非凸校验/导出/删除）；未在真机运行 |
+| 桌面 C ABI / CLI | Windows（MinGW-w64 16.2 + CMake 4.4）+ Linux（GCC 11 + CMake 3.22）编译运行 | C++ 自检 22/22；CLI 四滤镜、JPEG/PNG/BMP/TGA 均输出正确；DLL 只依赖 `KERNEL32` + UCRT |
+| 桌面 Python / Java | ctypes（3.12 Windows / 3.10 Linux）+ JNI（JDK 17，Windows 与 Linux） | Python 13/13；Java 16/16；`nm`/`objdump` 确认 3 个 `ic_*` 与 3 个 `Java_*` 导出 |
 
-测试脚本位于开发机 `D:\tools-src\wsl\lib\`，不随仓库提交。
+测试脚本位于开发机 `D:\tools-src\wsl\lib\`，不随仓库提交；桌面端的四组自检在仓库内
+（`modules/image-core/desktop/tests/`），Windows / macOS / Linux 的 CI 见
+`.github/workflows/desktop-image-core.yml`。
 
 ---
 
@@ -788,14 +1534,16 @@ vs 379 ms），因为 Canvas 的 JIT 对这段逐像素浮点循环同样很快�
 ### ADR-5：鸿蒙 UI 用 H5 + ArkWeb，而不是 ArkTS 原生 UI
 
 - **理由**：HarmonyOS NEXT 没有 AOSP 层，React Native / Expo 不能直接运行；
-  H5 复用同一套交互与 Canvas 滤镜演示，算法仍通过 NAPI 走 C++。
+  H5 复用同一套交互（编辑器布局、裁剪手势、导出流程），算法仍通过 NAPI 走 C++。
 - **代价**：两层桥（H5 ↔ ArkTS ↔ NAPI），页面与原生端状态需手动同步。
 
 ### ADR-6：路由用状态机，暂不引入 Expo Router
 
-- **现状**：`App.tsx` 用联合类型切换四个页面。与 `AGENTS.md` 中“导航统一用
-  Expo Router”的约定不一致，属于当前实现的已知偏差。
-- **理由**：只有四个互斥页面，没有深链和返回栈需求；demo 阶段减少依赖。
+- **现状**：`App.tsx` 用联合类型切换页面；`route` 之外单独维护 `tab`，底部五个
+  入口（首页/全部文档/相机/工具箱/我的）在 `home` 这一条路由里切换。与
+  `AGENTS.md` 中“导航统一用 Expo Router”的约定不一致，属于当前实现的已知偏差。
+- **理由**：页面互斥、层级浅，没有深链和返回栈需求；`tab` 独立于 `route`，从
+  相机/编辑器返回时能停在原来的 tab 上。demo 阶段减少依赖。
 - **迁移路径**：把 `src/screens/*` 移到 `src/app/`，用 `_layout.tsx` + 文件路由，
   `router.push({ pathname: '/editor', params: { ... } })`；`ScanDoc` 通过参数 id
   查询，避免把大对象塞进 URL。
@@ -816,17 +1564,21 @@ vs 379 ms），因为 Canvas 的 JIT 对这段逐像素浮点循环同样很快�
 
 ## 15. 扩展点
 
-### 15.1 新增滤镜
+### 15.1 新增算法
 
+列表、顺序、标签都集中在 `src/lib/filters.ts`，增删算法不再改界面代码。
 按顺序改：
 
-1. `modules/image-core/common/image_core.h`：加枚举值；
-2. `image_core.cpp`：实现 `apply_xxx` 并加入 `switch`；
-3. `src/types.ts`：`FilterKey` + `FILTER_LABELS`；
-4. `src/lib/filterEngine.tsx`：HTML 里加同名分支（保持公式一致）；
+1. `src/lib/filters.ts`：`FilterKey` + `FILTER_LABELS` + `SCAN_FILTERS`
+   （`SCAN_FILTERS` 决定展示顺序，删掉一项即隐藏）；
+2. `modules/image-core/common/image_core.h`：加枚举值；
+3. `image_core.cpp`：实现 `apply_xxx` 并加入 `switch`；
+4. `src/lib/filterEngine.tsx`：HTML 里加同名分支（公式必须与 C++ 一致）；
 5. 三个桥的 `filterId` 映射：Kotlin、Swift、ArkTS；
-6. `src/screens/EditorScreen.tsx` 的 `FILTERS` 数组；
-7. 契约脚本与像素对比脚本补用例。
+6. 契约脚本与像素对比脚本补用例。
+
+只做 UI 实验时，可以只改第 1 步——未实现的 key 在 Canvas 里会原样返回，
+但正式功能必须补齐 2–5，否则该平台会静默不处理。
 
 ### 15.2 新增平台
 
@@ -841,11 +1593,12 @@ vs 379 ms），因为 Canvas 的 JIT 对这段逐像素浮点循环同样很快�
 
 | 功能 | 建议落点 |
 |---|---|
-| 边缘检测 / 透视校正 | 已定契约：`src/lib/documentDetection.ts`；原生 warp 放共享 C++，见 [EDGE_DETECTION.md](EDGE_DETECTION.md) |
+| 边缘检测 | 四角手动/默认裁剪与 C++ 透视校正已实现（`src/lib/crop.ts`、`CropOverlay.tsx`、`warp_pixels`）；下一步接 ONNX 出四角建议，见 [EDGE_DETECTION.md](EDGE_DETECTION.md) |
 | ONNX 批量推理 / 低内存 | 有界并发 + session 复用 + 降采样解码，见 [EDGE_DETECTION.md](EDGE_DETECTION.md) §5 |
-| 手动批注 | `PdfPage.annotations` 已预留；建议渲染成位图写回 `uri`，避免 PDF 阶段再合成 |
+| 手动批注 | `DocPage.annotations` 已预留（扫描与 PDF 共用）；建议渲染成位图写回 `uri`，避免 PDF 阶段再合成 |
 | 大页数 PDF | 原生流式 writer 替换 expo-print，见 [EDGE_DETECTION.md](EDGE_DETECTION.md) §6 |
-| ScanDoc 缩略图 | 保存时生成 200 px 版本，`thumbUri` 指向它（PDF 页面已经这么做） |
+| PDF 端也换应用内选择器 | `PdfScreen` 仍用 `expo-image-picker`；把 `PhotoPickerScreen` 接进去即可与扫描统一 |
+| 扫描 → PDF | `ScanDoc.pages` 与 `PdfDoc.pages` 同构，可直接复用 `generatePdf` 与排版页 |
 | 取消计算 | 原生桥增加 request id + 取消标志，避免快速切换浪费（JS 侧已有 `AbortSignal`） |
 | OCR | 保存后异步跑 ML Kit / PaddleOCR，结果单独存索引 |
 
@@ -930,7 +1683,8 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 7. **存储一致性**：文件与索引分开写，异常时可能留下孤儿图片；没有事务与清理。
 8. **Release 签名**：debug keystore，不可上架。
 9. **路由约定偏差**：未使用 Expo Router（ADR-6）。
-10. **扫描记录是单页模型**：`ScanDoc` 只有一张图；多页能力在独立的 `PdfDoc` 上实现。
+10. **扫描文档没有 PDF 导出**：`ScanDoc` 已支持多页，但导出仍只有「保存到相册」；
+    生成 PDF 需要走「图片转 PDF」重新导入（两者页面结构相同，后续可直接打通）。
 11. **PDF 页数受内存限制（15–60 页）**：expo-print 需要整份 HTML 在内存里；
     分档规则是估算值，低端机可能仍需拆分成多个 PDF。超出要走原生流式写入
     （[EDGE_DETECTION.md](EDGE_DETECTION.md) §6）。
@@ -964,10 +1718,13 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 | 鸿蒙 PDF | `harmony/entry/src/main/ets/pdf/PdfWriter.ets`（JPEG→PDF，DCTDecode） |
 | Canvas 引擎 | `src/lib/filterEngine.tsx` |
 | 引擎选择 | `src/lib/filterNative.ts`、`src/lib/imagePipeline.ts` |
-| 存储 | `src/lib/storage.ts` |
+| 存储（扫描） | `src/lib/storage.ts` |
+| 页面文件 | `src/lib/pageStore.ts` |
 | PDF 生成 | `src/lib/pdf.ts` |
 | PDF 存储 | `src/lib/pdfStorage.ts` |
 | 切边接口 | `src/lib/documentDetection.ts` |
+| 相册选择器 | `src/screens/PhotoPickerScreen.tsx` |
+| 多页扫描编辑 | `src/screens/ScanEditorScreen.tsx` |
 | 单页编辑 | `src/screens/EditorScreen.tsx`（`showPageTools`）、`src/screens/PdfScreen.tsx` |
 | 路由 | `App.tsx` |
 | 构建配置 | `app.json`、`metro.config.js`、`.github/workflows/ios-unsigned-ipa.yml` |

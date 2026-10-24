@@ -1,0 +1,143 @@
+name: desktop-image-core
+
+# 桌面端共享算法（Windows / macOS / Linux）：动态库 + 命令行 + Python/Java 绑定。
+# 只改动 modules/image-core 或样例图时触发，不进手机端的构建流程。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "modules/image-core/common/**"
+      - "modules/image-core/desktop/**"
+      - "assets/sample_doc.jpg"
+      - ".github/workflows/desktop-image-core.yml"
+  pull_request:
+    paths:
+      - "modules/image-core/common/**"
+      - "modules/image-core/desktop/**"
+      - "assets/sample_doc.jpg"
+      - ".github/workflows/desktop-image-core.yml"
+
+concurrency:
+  group: desktop-image-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ -n "${JAVA_HOME:-}" ]; then ARGS+=("-DJAVA_HOME=$JAVA_HOME"); fi
+          cmake -S modules/image-core/desktop -B build/desktop \
+            -DCMAKE_BUILD_TYPE=Release "${ARGS[@]}"
+
+      - name: Build
+        run: cmake --build build/desktop --config Release --parallel
+
+      # 多配置生成器（VS）把产物放在 Release/ 子目录，统一成 IC_BIN
+      - name: Locate artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=build/desktop
+          if [ -d "$BIN/Release" ]; then BIN="$BIN/Release"; fi
+          echo "IC_BIN=$BIN" >> "$GITHUB_ENV"
+          ls -l "$BIN"
+
+      - name: CTest
+        run: ctest --test-dir build/desktop -C Release --output-on-failure
+
+      - name: CLI smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Windows) EXE="$IC_BIN/imagecore.exe" ;;
+            *)       EXE="$IC_BIN/imagecore" ;;
+          esac
+          "$EXE" --version
+          for f in original gray bw enhance; do
+            "$EXE" -f "$f" -q 85 -m 800 assets/sample_doc.jpg "build/desktop/out_$f.jpg"
+            test -s "build/desktop/out_$f.jpg"
+          done
+
+      - name: Python binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Windows)
+              export IMAGECORE_LIB="$IC_BIN/image_core.dll"
+              CLI="$IC_BIN/imagecore.exe"
+              PY=python
+              ;;
+            macOS)
+              export IMAGECORE_LIB="$IC_BIN/libimage_core.dylib"
+              CLI="$IC_BIN/imagecore"
+              PY=python3
+              ;;
+            *)
+              export IMAGECORE_LIB="$IC_BIN/libimage_core.so"
+              CLI="$IC_BIN/imagecore"
+              PY=python3
+              ;;
+          esac
+          "$PY" -I modules/image-core/desktop/tests/python_test.py \
+            assets/sample_doc.jpg "$CLI"
+
+      - name: Java binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Windows) LIB="$IC_BIN/image_core.dll" ;;
+            macOS)   LIB="$IC_BIN/libimage_core.dylib" ;;
+            *)       LIB="$IC_BIN/libimage_core.so" ;;
+          esac
+          if [ ! -f "$LIB" ]; then
+            echo "::warning::JNI bridge not built (JDK headers missing); skipping"
+            exit 0
+          fi
+          mkdir -p build/desktop/classes
+          # Windows 的 javac 默认 GBK，源码是 UTF-8（中文注释）
+          javac -encoding UTF-8 -d build/desktop/classes \
+            modules/image-core/desktop/java/com/imagecore/*.java
+          java -Djava.awt.headless=true "-Dimagecore.library=$PWD/$LIB" \
+            -cp build/desktop/classes com.imagecore.SelfTest assets/sample_doc.jpg
+          java -Djava.awt.headless=true "-Dimagecore.library=$PWD/$LIB" \
+            -cp build/desktop/classes com.imagecore.ImageCoreCli bw \
+            assets/sample_doc.jpg build/desktop/java_bw.jpg 88
+          test -s build/desktop/java_bw.jpg
+
+      # Electron 界面不在这里启动（需要 GPU/Xvfb，且要下载 ~90MB 的 electron），
+      # 只做语法检查，保证 main/preload/renderer 不会带着语法错误进仓库。
+      - name: Electron UI syntax check
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in main.js preload.js package.js renderer/app.js; do
+            node --check "modules/image-core/desktop/electron/$f"
+          done
+
+      - name: Upload CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: imagecore-${{ matrix.os }}
+          # 同时覆盖单配置（build/desktop/）与 VS 多配置（build/desktop/Release/）
+          path: build/desktop/**/imagecore*
+          if-no-files-found: error
+          retention-days: 14

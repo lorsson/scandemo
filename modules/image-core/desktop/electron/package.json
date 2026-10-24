@@ -1,0 +1,16 @@
+{
+  "name": "imagecore-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Scan Demo — Electron UI on top of the shared image-core algorithm",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke-test",
+    "package": "node package.js"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "45.0.0"
+  }
+}

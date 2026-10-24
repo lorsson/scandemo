@@ -27,30 +27,75 @@ harmony/
     src/main/module.json5
     src/main/ets/
       entryability/EntryAbility.ets
-      pages/Index.ets            # <Web> + javaScriptProxy bridge + PDF entry
+      pages/Index.ets            # <Web> + javaScriptProxy bridge (all ops)
       pages/PdfPage.ets          # native PDF composer (picker, filters, reorder)
       pdf/PdfWriter.ets          # JPEG -> PDF (DCTDecode, A4) writer
-      image/ImageCoreService.ets # @ohos.multimedia.image decode/encode + NAPI call
+      pdf/PdfSave.ets            # PdfWriter + DocumentViewPicker.save()
+      image/ImageCoreService.ets # PixelMap decode/encode + NAPI calls
     src/main/cpp/
       CMakeLists.txt             # builds libimage_core.so from common/ + napi_init.cpp
-      napi_init.cpp              # exports version(), processPixels(buf,w,h,filter)
+      napi_init.cpp              # 8 exports (see below)
       types/libimage_core/       # .d.ts + oh-package.json5 for the .so
     src/main/resources/
-      rawfile/index.html         # H5 UI
+      rawfile/index.html         # scan editor UI (same layout/interactions as RN)
       rawfile/sample.jpg         # test image (copied to cache at startup)
 ```
+
+## Native surface (NAPI)
+
+`napi_init.cpp` exports exactly the same geometry/algorithms as the Android
+JNI bridge; nothing platform-specific is reimplemented in ArkTS:
+
+| export | meaning |
+| --- | --- |
+| `version()` | `image-core/0.3.0` |
+| `processPixels(buf,w,h,filter)` | in-place filter, 11 ids |
+| `processPixelsEx(buf,w,h,filter,c,b,d)` | filter + contrast/brightness/detail |
+| `warpSize(w,h,quad,maxDim)` | output size for perspective crop |
+| `warpPixels(src,sw,sh,dst,dw,dh,quad)` | bilinear perspective warp |
+| `resizeSize(w,h,maxDim)` / `resizePixels(...)` | downscale (never upscale) |
+| `rotatePixels(src,w,h,dst,degrees)` | 90 / 180 / 270 clockwise |
 
 ## Pixel format contract
 
 `processPixels` expects an `ArrayBuffer` of `width*height*4` bytes where each
 little-endian `uint32` is `0xAARRGGBB`. The ArkTS side asks the decoder for
 `BGRA_8888`, whose memory order (B,G,R,A) yields exactly that integer on
-little-endian cores — the same contract the Android `Bitmap.getPixels` path uses.
+little-endian cores — the same contract the Android `Bitmap.getPixels` and iOS
+`premultipliedFirst | byteOrder32Little` paths use.
+
+## H5 scan editor and bridge protocol
+
+`rawfile/index.html` is a self-contained editor that mirrors
+`src/screens/ScanEditorScreen.tsx` (same 11 filters, same adjust/preview
+thresholds, same crop constants, same copy). It talks to ArkTS through
+`javaScriptProxy`:
+
+```
+H5  nativeBridge.dispatch(JSON)  ->  Index.ets NativeBridge (serial queue)
+                                        -> ImageCoreService (decode / C++ / encode)
+    window.__onNativeResult(JSON) <-  controller.runJavaScript(...)
+```
+
+- Every request has an `id`; H5 keeps a pending map and a timeout, so
+  concurrent taps cannot interleave decodes. Requests are executed one at a
+  time (`this.ready = this.ready.then(...)`).
+- Thousands of result bytes (data URLs, page lists) cannot be returned from a
+  `javaScriptProxy` method reliably, hence the `runJavaScript` callback.
+- The proxy is synchronous and has no file access, so every op is a **command**
+  (`sample`, `pick`, `base`, `render`, `thumbs`, `warp`, `read`, `delete`,
+  `pdf`, `saveImages`, `version`), never a shared-memory buffer.
+- Only the visible page asks for image data (`withData`); other pages get file
+  paths and are rendered when activated. Images are displayed as data URLs
+  because `file://` access inside ArkWeb is not reliable for cache paths.
 
 ## PDF feature
 
-The H5 page keeps the filter demo; a floating **图片转 PDF** button opens the
-native `PdfPage` (registered in `main_pages.json`).
+There are two entries: the H5 editor's **保存成 PDF** (exports the pages being
+edited) and the floating **批量转 PDF** button that opens the native
+`PdfPage` (registered in `main_pages.json`). Both end in
+`pdf/PdfSave.ets`, which writes into cache and hands the file to
+`DocumentViewPicker.save()` so the user chooses the destination.
 
 ```
 PhotoViewPicker (multi-select)
@@ -101,10 +146,10 @@ On Windows use `ohpm.bat` / `hvigorw.bat` (both need `node` on PATH).
 ## Status
 
 - **Build verified** with OpenHarmony SDK 5.0.0.71 (API 12) + hvigor 5.16.2:
-  `BUILD SUCCESSFUL`, output
-  `entry/build/default/outputs/default/entry-default-unsigned.hap` (checked
-  again after adding `PdfPage.ets` / `PdfWriter.ets`, including the new
-  `ImageCoreService.processFile(maxDim)` and `makeThumbnail`).
+  `BUILD SUCCESSFUL` (53 s), output
+  `entry/build/default/outputs/default/entry-default-unsigned.hap`, after the
+  full scan editor and the 8-function NAPI surface were added (ArkTS strict
+  mode passes; earlier builds covered `PdfPage.ets` / `PdfWriter.ets`).
 - HAP contains `libs/arm64-v8a/libimage_core.so` (stripped, 10 KB) plus
   `resources/rawfile/{index.html,sample.jpg}` and `ets/modules.abc`.
 - The `.so` is ELF64 AArch64 and exports `RegisterImageCoreModule`; the NAPI
@@ -163,8 +208,18 @@ real-name-verified Huawei ID), so the bridge was verified on the host:
 - engine page (11 checks): ready handshake, data-URL output, 1200x1600
   dimensions preserved, grayscale ratio 1.0, binary ratio 1.0 before JPEG
   encode, near-binary 0.9993 after JPEG, enhance changes pixels, ~10 ms per
-  filter; plus H5 page (9 checks): button set, JSON payload fields
-  (`id/input/output/filter/quality`), result and error rendering.
+  filter.
+- H5 editor (52 checks) against a mock `nativeBridge` that answers every op:
+  boot/sample, 11 filter tiles with thumbnails, filter press payloads, adjust
+  preview (`maxDim 900`, `quality 85`) then full-size confirm, temp-file
+  deletion, rotation (`base.rotation`), crop from the full quad, synthetic
+  pointer drag moving the corner, loupe visibility/side, `warp` with 8
+  normalized coordinates at quality 92 / maxDim 1600, source replacement,
+  old-file cleanup, non-convex drag turning the polygon red with `确定` disabled,
+  reset/cancel, append pick, PDF export collecting one preview path per page,
+  native failure surfacing as a toast, and page deletion purging both files.
+  The mock returns a real 1050×1400 canvas JPEG so `naturalWidth`/layout and
+  pointer hit-testing run on realistic geometry.
 
 `D:\tools-src\wsl\lib\webview_test\dump_compare_data.js` + `compare_native.js`
 - feeds the **exact same RGBA pixels** (600x800 lossless PNG) to the Canvas

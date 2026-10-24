@@ -6,6 +6,7 @@ import {
   Image,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -28,14 +29,17 @@ import {
   persistPdfPages,
   savePageEdit,
 } from '../lib/pdfStorage';
+import { SCAN_FILTERS } from '../lib/filters';
 import { shadow, theme } from '../theme';
 import { FILTER_LABELS } from '../types';
-import type { FilterKey, PdfDoc, PdfPage } from '../types';
+import type { DocPage, FilterKey, PdfDoc } from '../types';
 
 type Props = {
   doc: PdfDoc;
   onBack: () => void;
   onUpdate: (doc: PdfDoc) => void | Promise<void>;
+  /** 打开内置阅读器（有页面时） */
+  onRead: () => void;
   /** 打开单页编辑器：增强 / 旋转 / 切边（预留）/ 批注（预留） */
   onEditPage: (pageId: string) => void;
 };
@@ -46,7 +50,6 @@ type Busy =
   | { kind: 'generate'; done: number; total: number }
   | null;
 
-const FILTERS: FilterKey[] = ['original', 'enhance', 'gray', 'bw'];
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误';
@@ -62,9 +65,9 @@ function nextGeneratedAt(updatedAt: number): number {
   return Math.max(Date.now(), updatedAt);
 }
 
-export default function PdfScreen({ doc, onBack, onUpdate, onEditPage }: Props) {
+export default function PdfScreen({ doc, onBack, onUpdate, onRead, onEditPage }: Props) {
   const insets = useSafeAreaInsets();
-  const [pages, setPages] = useState<PdfPage[]>(doc.pages);
+  const [pages, setPages] = useState<DocPage[]>(doc.pages);
   const [pdfUri, setPdfUri] = useState<string | null>(doc.uri);
   const [generatedAt, setGeneratedAt] = useState<number | null>(doc.generatedAt);
   const [updatedAt, setUpdatedAt] = useState<number>(doc.updatedAt);
@@ -89,7 +92,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onEditPage }: Props) 
   }, []);
 
   /** 页面数组变化：持久化并把 generatedAt 留在原地，使 dirty 为 true */
-  const applyPages = (nextPages: PdfPage[]) => {
+  const applyPages = (nextPages: DocPage[]) => {
     const now = nextUpdatedAt(generatedAt);
     setPages(nextPages);
     setUpdatedAt(now);
@@ -205,7 +208,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onEditPage }: Props) 
     applyPages(next);
   };
 
-  const handleRemove = (page: PdfPage, index: number) => {
+  const handleRemove = (page: DocPage, index: number) => {
     if (busy) return;
     Alert.alert('移除页面', `确定移除第 ${index + 1} 页吗？`, [
       { text: '取消', style: 'cancel' },
@@ -354,7 +357,21 @@ export default function PdfScreen({ doc, onBack, onUpdate, onEditPage }: Props) 
         <Text style={styles.topTitle} numberOfLines={1}>
           {doc.title}
         </Text>
-        <Text style={styles.topMeta}>{pages.length} 页</Text>
+        <View style={styles.topRight}>
+          <Text style={styles.topMeta}>{pages.length} 页</Text>
+          {pages.length > 0 && (
+            <Pressable
+              hitSlop={8}
+              onPress={onRead}
+              style={({ pressed }) => [
+                styles.readBtn,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.readBtnText}>阅读</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       <FlatList
@@ -368,8 +385,12 @@ export default function PdfScreen({ doc, onBack, onUpdate, onEditPage }: Props) 
           <View>
             <View style={styles.filterCard}>
               <Text style={styles.filterTitle}>导入时自动执行</Text>
-              <View style={styles.filterRow}>
-                {FILTERS.map((key) => {
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.filterRow}
+              >
+                {SCAN_FILTERS.map((key) => {
                   const active = defaultFilter === key;
                   return (
                     <Pressable
@@ -393,7 +414,7 @@ export default function PdfScreen({ doc, onBack, onUpdate, onEditPage }: Props) 
                     </Pressable>
                   );
                 })}
-              </View>
+              </ScrollView>
               <Text style={styles.filterHint}>
                 新导入的图片会自动套用该算法；单页仍可点 ✎ 单独调整。
               </Text>
@@ -640,7 +661,22 @@ const styles = StyleSheet.create({
     color: theme.text,
     paddingHorizontal: 8,
   },
-  topMeta: { minWidth: 48, textAlign: 'right', color: theme.subtext, fontSize: 13 },
+  topMeta: { color: theme.subtext, fontSize: 13 },
+  topRight: {
+    minWidth: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  readBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: theme.primary,
+  },
+  readBtnText: { color: theme.primary, fontSize: 12, fontWeight: '700' },
   listContent: { padding: 16, paddingBottom: 28 },
   filterCard: {
     backgroundColor: theme.surface,
@@ -652,8 +688,8 @@ const styles = StyleSheet.create({
   filterTitle: { fontSize: 13, fontWeight: '700', color: theme.text },
   filterRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   chip: {
-    flex: 1,
     paddingVertical: 8,
+    paddingHorizontal: 14,
     borderRadius: 9,
     borderWidth: 1,
     borderColor: theme.border,

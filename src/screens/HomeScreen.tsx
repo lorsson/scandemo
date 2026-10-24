@@ -8,9 +8,9 @@ import {
   View,
 } from 'react-native';
 
+import { formatDate } from '../lib/format';
 import { shadow, theme } from '../theme';
 import type { PdfDoc, ScanDoc } from '../types';
-import { FILTER_LABELS } from '../types';
 
 type Props = {
   docs: ScanDoc[];
@@ -24,12 +24,6 @@ type Props = {
   onOpenPdf: (pdf: PdfDoc) => void;
   onDeletePdf: (pdf: PdfDoc) => void;
 };
-
-function formatDate(ts: number): string {
-  const d = new Date(ts);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 function isPdfDirty(pdf: PdfDoc): boolean {
   return !pdf.uri || pdf.generatedAt === null || pdf.updatedAt > pdf.generatedAt;
@@ -152,31 +146,38 @@ export default function HomeScreen({
         </View>
       ) : (
         <View style={styles.list}>
-          {sorted.map((doc) => (
-            <Pressable
-              key={doc.id}
-              style={({ pressed }) => [styles.docRow, pressed && styles.pressed]}
-              onPress={() => onOpenDoc(doc)}
-              onLongPress={() => onDeleteDoc(doc)}
-            >
-              <Image source={{ uri: doc.thumbUri }} style={styles.thumb} />
-              <View style={styles.docMeta}>
-                <Text style={styles.docTitle} numberOfLines={1}>
-                  {doc.title}
-                </Text>
-                <Text style={styles.docSub}>
-                  {FILTER_LABELS[doc.filter]} · {formatDate(doc.createdAt)}
-                </Text>
-              </View>
+          {sorted.map((doc) => {
+            const cover = doc.pages[0]?.thumbUri;
+            return (
               <Pressable
-                hitSlop={10}
-                style={styles.deleteBtn}
-                onPress={() => onDeleteDoc(doc)}
+                key={doc.id}
+                style={({ pressed }) => [styles.docRow, pressed && styles.pressed]}
+                onPress={() => onOpenDoc(doc)}
+                onLongPress={() => onDeleteDoc(doc)}
               >
-                <Text style={styles.deleteText}>✕</Text>
+                {cover ? (
+                  <Image source={{ uri: cover }} style={styles.thumb} />
+                ) : (
+                  <View style={styles.thumb} />
+                )}
+                <View style={styles.docMeta}>
+                  <Text style={styles.docTitle} numberOfLines={1}>
+                    {doc.title}
+                  </Text>
+                  <Text style={styles.docSub}>
+                    {doc.pages.length} 页 · {formatDate(doc.createdAt)}
+                  </Text>
+                </View>
+                <Pressable
+                  hitSlop={10}
+                  style={styles.deleteBtn}
+                  onPress={() => onDeleteDoc(doc)}
+                >
+                  <Text style={styles.deleteText}>✕</Text>
+                </Pressable>
               </Pressable>
-            </Pressable>
-          ))}
+            );
+          })}
         </View>
       )}
 

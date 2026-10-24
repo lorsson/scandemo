@@ -2,100 +2,1739 @@
 <html lang="zh">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>鸿蒙 · image-core</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>扫描文档</title>
   <style>
-    :root { color-scheme: dark; }
+    :root {
+      --ink: #0b0d12;
+      --panel: #141821;
+      --primary: #2f6bff;
+      --accent: #4ea1ff;
+      --text: #dfe4ee;
+      --dim: #9aa3b5;
+      --faint: #7f8698;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
-      margin: 0; padding: 18px; background: #0f1115; color: #e6e6e6;
-      font-family: -apple-system, "HarmonyOS Sans", "Segoe UI", sans-serif;
+      margin: 0;
+      overflow: hidden;
+      background: var(--ink);
+      color: var(--text);
+      font-family: -apple-system, "HarmonyOS Sans SC", "HarmonyOS Sans", "Segoe UI", sans-serif;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-text-size-adjust: 100%;
     }
-    h3 { margin: 0 0 4px; font-weight: 600; }
-    .sub { color: #8a93a6; font-size: 13px; margin-bottom: 16px; }
-    #btns { display: flex; flex-wrap: wrap; gap: 8px; }
     button {
-      padding: 10px 16px; border-radius: 12px; border: 1px solid #2a3140;
-      background: #1b1f27; color: #e6e6e6; font-size: 15px;
+      font-family: inherit;
+      font-size: inherit;
+      color: inherit;
+      background: none;
+      border: 0;
+      padding: 0;
+      touch-action: manipulation;
     }
-    button:active { background: #2a3040; }
-    #log {
-      white-space: pre-wrap; font-size: 13px; line-height: 1.55;
-      margin-top: 16px; color: #9fe3c8; background: #12161d; padding: 12px;
-      border-radius: 12px; min-height: 60px;
+    button:disabled { opacity: 0.42; }
+    #app { display: flex; flex-direction: column; height: 100%; }
+
+    /* ---------------- 顶栏 ---------------- */
+    .topbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px 8px; }
+    .topbtn { min-width: 52px; height: 32px; font-size: 15px; color: #c9ced8; text-align: left; }
+    .topbtn.primary { color: #6ea0ff; font-weight: 700; text-align: right; }
+    .topbtn:disabled { color: #5b6270; opacity: 1; }
+    .title {
+      flex: 1;
+      min-width: 0;
+      text-align: center;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 8px;
+      padding: 4px 8px;
+      outline: none;
     }
+    .title:disabled { color: #7f8698; }
+
+    /* ---------------- 预览舞台 ---------------- */
+    .previewArea { flex: 1 1 0; min-height: 0; padding: 4px 12px; }
+    #stage { position: relative; width: 100%; height: 100%; overflow: hidden; }
+    #photo {
+      position: absolute;
+      display: block;
+      pointer-events: none;
+      -webkit-user-drag: none;
+    }
+    .empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .emptyIcon { font-size: 40px; }
+    .emptyText { font-size: 15px; font-weight: 600; color: var(--text); }
+    .emptyHint { font-size: 12px; color: var(--faint); }
+    .stageDelete {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(20, 24, 33, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .pill {
+      position: absolute;
+      left: 50%;
+      bottom: 12px;
+      transform: translateX(-50%);
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 18px;
+      background: rgba(20, 24, 33, 0.88);
+      color: #fff;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .spinner {
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(255, 255, 255, 0.28);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---------------- 页码行 ---------------- */
+    .pagerRow { display: flex; align-items: center; padding: 6px 12px; }
+    .pagerSide { flex: 1; display: flex; align-items: center; }
+    .pagerSide.right { justify-content: flex-end; }
+    .pagerCenter { display: flex; align-items: center; gap: 8px; }
+    .pagerBtn {
+      width: 38px;
+      height: 28px;
+      border-radius: 8px;
+      background: #e9edf5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .tri { width: 0; height: 0; }
+    .tri.left { border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-right: 9px solid #111318; }
+    .tri.right { border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 9px solid #111318; }
+    .pageLabel { min-width: 56px; text-align: center; font-size: 13px; font-weight: 600; color: var(--text); }
+    .comparePill {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      height: 28px;
+      padding: 0 7px;
+      border-radius: 8px;
+      background: #e9edf5;
+      color: #111318;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .comparePill .cmpIcon {
+      width: 13px;
+      height: 11px;
+      border: 1px solid #7f8698;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-right: 1px;
+      position: relative;
+    }
+    .comparePill .cmpIcon i { position: absolute; left: 0; top: 0; bottom: 0; width: 50%; background: #111318; }
+    .comparePill .dim { color: #8a90a0; font-weight: 600; }
+    .comparePill.on { background: rgba(47, 107, 255, 0.95); color: #fff; }
+    .comparePill.on .cmpIcon { border-color: #fff; }
+    .comparePill.on .cmpIcon i { background: #fff; }
+
+    /* ---------------- 底部面板 ---------------- */
+    #panel {
+      flex: none;
+      background: var(--panel);
+      border-radius: 20px 20px 0 0;
+      padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+    }
+    .sectionHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .sectionTitle { font-size: 13px; font-weight: 700; color: var(--text); }
+    .checkRow { display: flex; align-items: center; gap: 6px; }
+    .checkbox {
+      width: 18px;
+      height: 18px;
+      border-radius: 5px;
+      border: 1px solid #4a5266;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .checkbox.on { background: var(--primary); border-color: var(--primary); }
+    .checkLabel { font-size: 12px; color: var(--dim); }
+
+    .filterStrip {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+    .filterStrip::-webkit-scrollbar { display: none; }
+    .filterTile {
+      flex: 0 0 58px;
+      padding: 3px;
+      border: 2px solid transparent;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .filterTile.on { border-color: var(--primary); background: rgba(47, 107, 255, 0.12); }
+    .filterThumb {
+      width: 48px;
+      height: 48px;
+      border-radius: 7px;
+      background-color: #232838;
+      background-size: cover;
+      background-position: center;
+    }
+    .filterName { margin-top: 4px; font-size: 10px; color: var(--dim); white-space: nowrap; }
+    .filterTile.on .filterName { color: #fff; font-weight: 700; }
+
+    /* 微调面板 */
+    #adjustPanel { display: none; padding-bottom: 2px; }
+    .adjustTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .adjustChips { display: flex; gap: 8px; flex: 1; }
+    .adjustChip {
+      padding: 7px 14px;
+      border-radius: 14px;
+      background: #232838;
+      color: #c9ced8;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .adjustChip.on { background: var(--primary); color: #fff; }
+    .adjustActions { display: flex; gap: 8px; }
+    .adjustAction {
+      width: 38px;
+      height: 32px;
+      border-radius: 9px;
+      background: #232838;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .adjustAction.primary { background: var(--primary); color: #fff; }
+    .sliderRow { display: flex; align-items: center; gap: 10px; padding: 10px 2px 4px; }
+    .sliderRow input[type="range"] { flex: 1; accent-color: var(--primary); height: 22px; }
+    .adjustValue { width: 42px; text-align: right; font-size: 12px; font-weight: 700; color: var(--text); }
+    .adjustHint { font-size: 11px; color: var(--faint); }
+
+    /* 工具行 */
+    .toolRow { display: flex; gap: 6px; margin-top: 10px; }
+    .tool {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 7px 0 6px;
+      border-radius: 10px;
+      color: var(--dim);
+      font-size: 11px;
+    }
+    .tool:active { background: #1c2130; }
+    .tool .glyph { font-size: 18px; line-height: 1.1; color: var(--text); }
+
+    /* 导出 */
+    .exportRow { display: flex; gap: 8px; margin-top: 10px; }
+    .exportBtn {
+      flex: 1;
+      height: 38px;
+      border-radius: 10px;
+      background: #232838;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .exportBtn.primary { background: var(--primary); color: #fff; }
+    .coreLine { margin-top: 7px; text-align: center; font-size: 10px; color: #5f6779; }
+
+    /* 裁剪底栏 */
+    #cropBar { display: none; }
+    .cropHint { margin: 2px 0 8px; text-align: center; font-size: 13px; color: #c9ced8; }
+    .cropHint.invalid { color: #ff8f88; }
+    .cropActions { display: flex; gap: 10px; }
+    .cropAction {
+      flex: 1;
+      height: 38px;
+      border-radius: 10px;
+      background: #232838;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .cropAction.primary { background: var(--primary); color: #fff; }
+    body.cropping #filterStrip,
+    body.cropping #adjustPanel,
+    body.cropping .sectionHeader,
+    body.cropping .toolRow,
+    body.cropping .exportRow,
+    body.cropping .coreLine { display: none !important; }
+    body.cropping #cropBar { display: block; }
+
+    /* ---------------- 裁剪覆盖层 ---------------- */
+    #cropLayer { position: absolute; inset: 0; display: none; touch-action: none; }
+    #cropSvg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .cornerDot {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--accent);
+      background: #fff;
+    }
+    .cornerDot.active { background: var(--accent); border-color: #fff; }
+    .edgeBar {
+      position: absolute;
+      width: 30px;
+      height: 10px;
+      border-radius: 5px;
+      border: 2px solid #fff;
+      background: var(--accent);
+    }
+    .edgeBar.active { background: #b8d8ff; }
+
+    /* ---------------- 放大镜 ---------------- */
+    #loupe {
+      position: fixed;
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      overflow: hidden;
+      border: 2px solid #fff;
+      background: transparent;
+      display: none;
+      pointer-events: none;
+      z-index: 60;
+    }
+    #loupeImg { position: absolute; display: block; }
+    #loupe .crossH {
+      position: absolute; left: 0; right: 0; top: 49.5px; height: 1px;
+      background: rgba(255, 255, 255, 0.75);
+    }
+    #loupe .crossV {
+      position: absolute; top: 0; bottom: 0; left: 49.5px; width: 1px;
+      background: rgba(255, 255, 255, 0.75);
+    }
+    #loupe .centerWrap {
+      position: absolute; left: 34px; top: 34px; width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #loupeCircle {
+      width: 16px; height: 16px; border-radius: 50%;
+      border: 2px solid var(--accent);
+      background: rgba(255, 255, 255, 0.3);
+    }
+    #loupeBar {
+      display: none;
+      width: 30px; height: 11px; border-radius: 5.5px;
+      border: 2px solid #fff;
+      background: var(--accent);
+    }
+    #loupe .ring {
+      position: absolute; inset: 0; border-radius: 50%;
+      border: 3px solid rgba(78, 161, 255, 0.85);
+    }
+
+    /* ---------------- Toast ---------------- */
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: 96px;
+      transform: translateX(-50%);
+      max-width: 82vw;
+      padding: 9px 16px;
+      border-radius: 18px;
+      background: rgba(32, 37, 50, 0.95);
+      color: #fff;
+      font-size: 13px;
+      text-align: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease;
+      z-index: 70;
+    }
+    #toast.show { opacity: 1; }
   </style>
 </head>
 <body>
-  <h3>鸿蒙 · 共享 C++ 图像核心</h3>
-  <div class="sub">ArkTS 解码/编码 · NAPI 调用 image_core 像素处理</div>
-  <div id="btns"></div>
-  <div id="log">初始化中…</div>
+  <div id="app">
+    <div class="topbar">
+      <button class="topbtn" id="btnBack">返回</button>
+      <input class="title" id="docTitle" value="示例文档" placeholder="PDF 文档名称" maxlength="60" />
+      <button class="topbtn primary" id="btnShare">分享</button>
+    </div>
+
+    <div class="previewArea">
+      <div id="stage">
+        <img id="photo" alt="" />
+        <div class="empty" id="empty">
+          <div class="emptyIcon">🖼️</div>
+          <div class="emptyText">还没有页面</div>
+          <div class="emptyHint">点下方「继续导入」添加图片</div>
+        </div>
+        <button class="stageDelete" id="btnDelete" aria-label="删除当前页">✕</button>
+        <div id="cropLayer">
+          <svg id="cropSvg"><polygon id="cropPoly" fill="none" stroke="#4ea1ff" stroke-width="2" stroke-linejoin="round"></polygon></svg>
+          <div id="cropHandles"></div>
+        </div>
+        <div class="pill" id="busy"><span class="spinner"></span><span id="busyText"></span></div>
+      </div>
+    </div>
+
+    <div class="pagerRow">
+      <div class="pagerSide"></div>
+      <div class="pagerCenter">
+        <button class="pagerBtn" id="btnPrev" aria-label="上一页"><i class="tri left"></i></button>
+        <span class="pageLabel" id="pageLabel">0 / 0</span>
+        <button class="pagerBtn" id="btnNext" aria-label="下一页"><i class="tri right"></i></button>
+      </div>
+      <div class="pagerSide right">
+        <button class="comparePill" id="btnCompare" aria-label="按住查看原图">
+          <span class="cmpIcon"><i></i></span><span>原图</span><span class="dim">|</span><span>对比</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="panel">
+      <div class="sectionHeader">
+        <span class="sectionTitle">图像处理</span>
+        <button class="checkRow" id="btnApplyAll" role="checkbox" aria-checked="true">
+          <span class="checkbox on" id="applyBox">✓</span>
+          <span class="checkLabel">应用到所有页</span>
+        </button>
+      </div>
+
+      <div class="filterStrip" id="filterStrip"></div>
+
+      <div id="adjustPanel">
+        <div class="adjustTop">
+          <div class="adjustChips" id="adjustChips"></div>
+          <div class="adjustActions">
+            <button class="adjustAction" id="adjustCancel" aria-label="放弃调节">✕</button>
+            <button class="adjustAction primary" id="adjustOk" aria-label="保存调节">✓</button>
+          </div>
+        </div>
+        <div class="sliderRow">
+          <input type="range" id="adjustSlider" min="-50" max="50" step="1" value="0" />
+          <span class="adjustValue" id="adjustValue">0</span>
+        </div>
+        <div class="adjustHint" id="adjustHint">✓ 保存，✕ 放弃</div>
+      </div>
+
+      <div class="toolRow">
+        <button class="tool" data-tool="add"><span class="glyph">＋</span><span>继续导入</span></button>
+        <button class="tool" data-tool="left"><span class="glyph">↺</span><span>左转</span></button>
+        <button class="tool" data-tool="right"><span class="glyph">↻</span><span>右转</span></button>
+        <button class="tool" data-tool="crop"><span class="glyph">⌗</span><span>裁剪</span></button>
+        <button class="tool" data-tool="ocr"><span class="glyph">T</span><span>提取文字</span></button>
+      </div>
+
+      <div class="exportRow">
+        <button class="exportBtn" id="btnSaveImages">保存所有图片</button>
+        <button class="exportBtn primary" id="btnSavePdf">保存成 PDF</button>
+      </div>
+
+      <div class="coreLine" id="coreLine">共享 C++ 图像核心</div>
+
+      <div id="cropBar">
+        <p class="cropHint" id="cropHint">智能裁剪预览：拖动四角或四边，框住文档区域</p>
+        <div class="cropActions">
+          <button class="cropAction" id="cropCancel">取消</button>
+          <button class="cropAction" id="cropReset">重置</button>
+          <button class="cropAction primary" id="cropOk">确定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="loupe">
+    <img id="loupeImg" alt="" />
+    <div class="crossH"></div>
+    <div class="crossV"></div>
+    <div class="centerWrap">
+      <div id="loupeCircle"></div>
+      <div id="loupeBar"></div>
+    </div>
+    <div class="ring"></div>
+  </div>
+
+  <div id="toast"></div>
 
   <script>
     (function () {
-      var samplePath = '';
-      var seq = 0;
+      'use strict';
 
-      function el(id) { return document.getElementById(id); }
-      function log(s) {
-        var box = el('log');
-        box.textContent = s + "\n" + box.textContent;
-      }
+      // ---------------------------------------------------------------------
+      // 常量：与 src/lib/filters.ts、src/components/CropOverlay.tsx 保持一致
+      // ---------------------------------------------------------------------
+      const FILTERS = [
+        ['original', '原图'],
+        ['shadow', '去阴影'],
+        ['dehand', '去除手写'],
+        ['hd', '高清'],
+        ['brighten', '增亮'],
+        ['sharpen', '增强锐化'],
+        ['inksave', '省墨'],
+        ['enhance', '增强'],
+        ['gray', '灰度'],
+        ['bw', '黑白'],
+        ['invert', '反色'],
+      ];
+      const FILTER_KEYS = FILTERS.map(function (f) { return f[0]; });
+      const ADJUSTS = [
+        ['contrast', '对比度', -50, 50],
+        ['brightness', '亮度', -50, 50],
+        ['detail', '细节', 0, 100],
+      ];
+      const ZERO_ADJUST = { contrast: 0, brightness: 0, detail: 0 };
 
-      function renderButtons() {
-        var filters = [
-          ['增强', 'enhance'],
-          ['灰度', 'gray'],
-          ['黑白', 'bw'],
-          ['原图', 'original']
-        ];
-        var box = el('btns');
-        box.innerHTML = '';
-        filters.forEach(function (f) {
-          var b = document.createElement('button');
-          b.textContent = f[0];
-          b.addEventListener('click', function () { run(f[1]); });
-          box.appendChild(b);
+      const SCAN_MAX_DIM = 1400;
+      const PREVIEW_BASE_DIM = 900;
+      const THUMB_BASE_DIM = 260;
+      const MAX_PAGES = 30;
+      const MIN_QUAD_AREA = 0.02;
+
+      const CROP_INSET = 26;
+      const CORNER_SIZE = 18;
+      const EDGE_BAR_LENGTH = 30;
+      const EDGE_BAR_THICKNESS = 10;
+      const GRAB_RADIUS = 64;
+
+      const LOUPE_SIZE = 100;
+      const LOUPE_ZOOM = 2.6;
+      const LOUPE_DISTANCE = 88;
+
+      // 顺时针 TL → TR → BR → BL
+      const EDGES = [
+        { a: 0, b: 1 }, // top
+        { a: 1, b: 2 }, // right
+        { a: 3, b: 2 }, // bottom（与 RN 相同的端点顺序）
+        { a: 0, b: 3 }, // left
+      ];
+      const FULL_QUAD = [0, 0, 1, 0, 1, 1, 0, 1];
+
+      // ---------------------------------------------------------------------
+      // DOM
+      // ---------------------------------------------------------------------
+      const photo = document.getElementById('photo');
+      const stage = document.getElementById('stage');
+      const empty = document.getElementById('empty');
+      const pageLabel = document.getElementById('pageLabel');
+      const btnPrev = document.getElementById('btnPrev');
+      const btnNext = document.getElementById('btnNext');
+      const btnCompare = document.getElementById('btnCompare');
+      const btnDelete = document.getElementById('btnDelete');
+      const filterStrip = document.getElementById('filterStrip');
+      const adjustPanel = document.getElementById('adjustPanel');
+      const adjustChips = document.getElementById('adjustChips');
+      const adjustSlider = document.getElementById('adjustSlider');
+      const adjustValue = document.getElementById('adjustValue');
+      const adjustHint = document.getElementById('adjustHint');
+      const cropLayer = document.getElementById('cropLayer');
+      const cropHandlesEl = document.getElementById('cropHandles');
+      const cropPoly = document.getElementById('cropPoly');
+      const cropHint = document.getElementById('cropHint');
+      const cropOk = document.getElementById('cropOk');
+      const busyEl = document.getElementById('busy');
+      const busyText = document.getElementById('busyText');
+      const toastEl = document.getElementById('toast');
+      const loupe = document.getElementById('loupe');
+      const loupeImg = document.getElementById('loupeImg');
+      const loupeCircle = document.getElementById('loupeCircle');
+      const loupeBar = document.getElementById('loupeBar');
+      const titleInput = document.getElementById('docTitle');
+      const coreLine = document.getElementById('coreLine');
+      const btnSaveImages = document.getElementById('btnSaveImages');
+      const btnSavePdf = document.getElementById('btnSavePdf');
+      const btnShare = document.getElementById('btnShare');
+
+      // ---------------------------------------------------------------------
+      // 原生桥
+      //
+      // ArkTS 侧串行处理请求，结果统一走 window.__onNativeResult 回推。
+      // 每次请求带自增 id，多个 UI 动作并发也不会串台。
+      // ---------------------------------------------------------------------
+      let seq = 0;
+      const pending = new Map();
+
+      function call(op, payload, timeoutMs) {
+        return new Promise(function (resolve, reject) {
+          if (!window.nativeBridge || !window.nativeBridge.dispatch) {
+            reject(new Error('nativeBridge 未注入'));
+            return;
+          }
+          const id = ++seq;
+          const timer = setTimeout(function () {
+            if (!pending.has(id)) return;
+            pending.delete(id);
+            reject(new Error('操作超时'));
+          }, timeoutMs || 60000);
+          pending.set(id, { resolve: resolve, reject: reject, timer: timer });
+          const req = Object.assign({ id: id, op: op }, payload || {});
+          try {
+            window.nativeBridge.dispatch(JSON.stringify(req));
+          } catch (e) {
+            clearTimeout(timer);
+            pending.delete(id);
+            reject(e);
+          }
         });
       }
-
-      function run(filter) {
-        if (!samplePath) { log('示例图未就绪（检查 rawfile/sample.jpg）'); return; }
-        var id = ++seq;
-        var out = samplePath.replace(/sample\.jpg$/, 'out-' + filter + '-' + id + '.jpg');
-        var payload = JSON.stringify({
-          id: id, input: samplePath, output: out, filter: filter, quality: 92
-        });
-        log('→ ' + filter + ' …');
-        if (window.nativeBridge && window.nativeBridge.dispatch) {
-          window.nativeBridge.dispatch(payload);
-        } else {
-          log('nativeBridge 未注入');
-        }
-      }
-
-      window.__init = function (p) {
-        samplePath = p || '';
-        renderButtons();
-        if (samplePath) {
-          var v = (window.nativeBridge && window.nativeBridge.version)
-            ? window.nativeBridge.version() : '?';
-          log('就绪，核心版本 ' + v + '\n' + samplePath);
-        } else {
-          log('示例图未就绪');
-        }
-      };
 
       window.__onNativeResult = function (r) {
-        if (!r || !r.ok) {
-          log('失败: ' + (r && r.error ? r.error : 'unknown'));
+        if (!r) return;
+        const entry = pending.get(r.id);
+        if (!entry) return;
+        pending.delete(r.id);
+        clearTimeout(entry.timer);
+        if (r.ok) entry.resolve(r);
+        else entry.reject(new Error(r.error || 'native error'));
+      };
+
+      // ---------------------------------------------------------------------
+      // 状态
+      // ---------------------------------------------------------------------
+      const state = {
+        pages: [],
+        active: 0,
+        applyAll: true,
+        running: false,
+        busy: '',
+        cropMode: false,
+        quad: null,
+        drag: null,
+        compare: false,
+        adjustOpen: false,
+        adjustKey: 'contrast',
+        draft: { contrast: 0, brightness: 0, detail: 0 },
+        thumbs: null,
+        thumbKey: '',
+        loupeSide: 1,
+        loupeAngle: null,
+        activeHandle: null,
+      };
+
+      let imgRect = null;       // 图片在舞台里的显示矩形（px）
+      let adjustFile = '';      // 微调预览的临时文件
+      let adjustTimer = 0;
+      let adjustSeq = 0;
+      let thumbSeq = 0;
+      let editSeq = 0;
+      let activateSeq = 0;
+      let booted = false;
+
+      // ---------------------------------------------------------------------
+      // 小工具
+      // ---------------------------------------------------------------------
+      function activePage() {
+        return state.pages[state.active] || null;
+      }
+
+      function pageKey(page) {
+        return [
+          page.source,
+          page.rotation,
+          page.filter,
+          page.adjust.contrast,
+          page.adjust.brightness,
+          page.adjust.detail,
+        ].join('|');
+      }
+
+      function sameAdjust(a, b) {
+        return a.contrast === b.contrast &&
+          a.brightness === b.brightness &&
+          a.detail === b.detail;
+      }
+
+      function clamp01(v) {
+        return Math.min(1, Math.max(0, v));
+      }
+
+      function showToast(message, ms) {
+        toastEl.textContent = message;
+        toastEl.classList.add('show');
+        clearTimeout(showToast.timer);
+        showToast.timer = setTimeout(function () {
+          toastEl.classList.remove('show');
+        }, ms || 2000);
+      }
+
+      function setBusy(text) {
+        state.busy = text || '';
+        busyEl.style.display = state.busy ? 'inline-flex' : 'none';
+        busyText.textContent = state.busy;
+      }
+
+      // ---------------------------------------------------------------------
+      // 四边形几何（与 src/lib/crop.ts / CropOverlay.tsx 等价）
+      // ---------------------------------------------------------------------
+      function isQuadConvex(q) {
+        let sign = 0;
+        for (let i = 0; i < 4; i++) {
+          const a = i * 2;
+          const b = ((i + 1) % 4) * 2;
+          const c = ((i + 2) % 4) * 2;
+          const cross = (q[b] - q[a]) * (q[c + 1] - q[b + 1]) -
+            (q[b + 1] - q[a + 1]) * (q[c] - q[b]);
+          if (Math.abs(cross) < 1e-6) return false;
+          const current = cross > 0 ? 1 : -1;
+          if (sign === 0) sign = current;
+          else if (current !== sign) return false;
+        }
+        return true;
+      }
+
+      function quadArea(q) {
+        let sum = 0;
+        for (let i = 0; i < 4; i++) {
+          const a = i * 2;
+          const b = ((i + 1) % 4) * 2;
+          sum += q[a] * q[b + 1] - q[b] * q[a + 1];
+        }
+        return Math.abs(sum) / 2;
+      }
+
+      function isFullQuad(q, eps) {
+        eps = eps === undefined ? 0.004 : eps;
+        const near = function (a, b) { return Math.abs(a - b) <= eps; };
+        return near(q[0], 0) && near(q[1], 0) &&
+          near(q[2], 1) && near(q[3], 0) &&
+          near(q[4], 1) && near(q[5], 1) &&
+          near(q[6], 0) && near(q[7], 1);
+      }
+
+      function moveQuad(start, handle, dnx, dny) {
+        const q = start.slice();
+        if (handle.kind === 'corner') {
+          const i = handle.index * 2;
+          q[i] = clamp01(start[i] + dnx);
+          q[i + 1] = clamp01(start[i + 1] + dny);
+          return q;
+        }
+        const edge = EDGES[handle.index];
+        const ax = start[edge.a * 2];
+        const ay = start[edge.a * 2 + 1];
+        const bx = start[edge.b * 2];
+        const by = start[edge.b * 2 + 1];
+        // 整条边平移：两个端点共享位移，夹到两端都不出界的范围
+        const dx = Math.max(-Math.min(ax, bx), Math.min(dnx, 1 - Math.max(ax, bx)));
+        const dy = Math.max(-Math.min(ay, by), Math.min(dny, 1 - Math.max(ay, by)));
+        q[edge.a * 2] = ax + dx;
+        q[edge.a * 2 + 1] = ay + dy;
+        q[edge.b * 2] = bx + dx;
+        q[edge.b * 2 + 1] = by + dy;
+        return q;
+      }
+
+      // ---------------------------------------------------------------------
+      // 页面数据
+      // ---------------------------------------------------------------------
+      function installPages(rawPages, append) {
+        const pages = rawPages.map(function (p) {
+          const page = {
+            id: p.id,
+            source: p.source,
+            filter: p.filter || 'enhance',
+            rotation: 0,
+            adjust: { contrast: 0, brightness: 0, detail: 0 },
+            thumb: p.thumb || '',
+            previewData: p.preview || '',
+            previewPath: p.previewPath || '',
+            basePath: '',
+            baseData: '',
+            previewKey: '',
+            width: p.width || 0,
+            height: p.height || 0,
+          };
+          // 导入时已经按 filter 渲染过一次，直接复用
+          page.previewKey = pageKey(page);
+          return page;
+        });
+        state.pages = append ? state.pages.concat(pages) : pages;
+        state.thumbs = null;
+        state.thumbKey = '';
+      }
+
+      function renderInto(page, withData, overrides) {
+        const adjust = (overrides && overrides.adjust) || page.adjust;
+        return call('render', {
+          input: page.basePath,
+          filter: page.filter,
+          contrast: adjust.contrast,
+          brightness: adjust.brightness,
+          detail: adjust.detail,
+          quality: (overrides && overrides.quality) || 92,
+          maxDim: (overrides && overrides.maxDim) || SCAN_MAX_DIM,
+          withData: !!withData,
+        });
+      }
+
+      /**
+       * 切到某一页：取当前旋转角对应的底图，再按 filter + adjust 渲染。
+       * 渲染结果按 pageKey 缓存，来回切页不会重复解码。
+       */
+      async function activate(index) {
+        const token = ++activateSeq;
+        if (state.cropMode) exitCrop();
+        closeAdjust(false);
+        state.compare = false;
+        state.active = Math.max(0, Math.min(index, state.pages.length - 1));
+        syncChrome();
+
+        const page = activePage();
+        if (!page) {
+          photo.removeAttribute('src');
+          imgRect = null;
           return;
         }
-        var t = r.timings;
-        log(t.filter + ' ' + t.width + 'x' + t.height +
-            '  decode=' + t.decodeMs + 'ms process=' + t.processMs +
-            'ms encode=' + t.encodeMs + 'ms total=' + t.totalMs + 'ms');
+
+        try {
+          setBusy('正在生成预览…');
+          const base = await call('base', {
+            input: page.source,
+            rotation: page.rotation,
+            withData: true,
+          });
+          if (token !== activateSeq) return;
+          page.basePath = base.path;
+          page.baseData = base.data || '';
+
+          if (!page.previewData || page.previewKey !== pageKey(page) || !page.previewPath) {
+            const rendered = await renderInto(page, true);
+            if (token !== activateSeq) return;
+            page.previewData = rendered.data || '';
+            page.previewPath = rendered.output;
+            page.previewKey = pageKey(page);
+            if (rendered.width) page.width = rendered.width;
+            if (rendered.height) page.height = rendered.height;
+          }
+
+          showPageImage();
+          layoutPhoto();
+          syncChrome();
+          refreshThumbs(page);
+        } catch (e) {
+          if (token === activateSeq) showToast('预览失败：' + e.message, 3000);
+        } finally {
+          if (token === activateSeq) setBusy('');
+        }
+      }
+
+      function showPageImage() {
+        const page = activePage();
+        if (!page) {
+          photo.removeAttribute('src');
+          imgRect = null;
+          return;
+        }
+        const src = state.compare
+          ? (page.baseData || page.previewData)
+          : (page.previewData || page.baseData);
+        if (!src) return;
+        if (photo.getAttribute('src') !== src) {
+          photo.src = src;
+        } else if (photo.complete && photo.naturalWidth) {
+          layoutPhoto();
+        }
+      }
+
+      /** 图片按 contain 摆进舞台；裁剪模式下四周留出 CROP_INSET 的抓取余量 */
+      function layoutPhoto() {
+        const page = activePage();
+        if (!page || !photo.naturalWidth || !photo.naturalHeight) {
+          imgRect = null;
+          renderCrop();
+          return;
+        }
+        const inset = state.cropMode ? CROP_INSET : 0;
+        const availW = Math.max(1, stage.clientWidth - inset * 2);
+        const availH = Math.max(1, stage.clientHeight - inset * 2);
+        const scale = Math.min(availW / photo.naturalWidth, availH / photo.naturalHeight);
+        const w = photo.naturalWidth * scale;
+        const h = photo.naturalHeight * scale;
+        const x = (stage.clientWidth - w) / 2;
+        const y = (stage.clientHeight - h) / 2;
+        photo.style.width = w + 'px';
+        photo.style.height = h + 'px';
+        photo.style.left = x + 'px';
+        photo.style.top = y + 'px';
+        imgRect = { x: x, y: y, w: w, h: h };
+        renderCrop();
+      }
+
+      // ---------------------------------------------------------------------
+      // 界面同步
+      // ---------------------------------------------------------------------
+      function syncChrome() {
+        const page = activePage();
+        const n = state.pages.length;
+        pageLabel.textContent = n ? (state.active + 1) + ' / ' + n : '0 / 0';
+        btnPrev.disabled = !page || state.active <= 0 || state.cropMode;
+        btnNext.disabled = !page || state.active >= n - 1 || state.cropMode;
+        empty.style.display = page ? 'none' : 'flex';
+        photo.style.display = page ? 'block' : 'none';
+        btnDelete.style.display = page && !state.cropMode ? 'flex' : 'none';
+        btnCompare.style.display = page && !state.cropMode ? 'inline-flex' : 'none';
+        btnCompare.classList.toggle('on', state.compare);
+        btnSaveImages.disabled = !n || state.running;
+        btnSavePdf.disabled = !n || state.running;
+        btnShare.disabled = !n || state.running;
+        titleInput.disabled = state.running;
+        document.body.classList.toggle('cropping', state.cropMode);
+        renderFilterStrip();
+        renderAdjust();
+        renderCrop();
+      }
+
+      function buildFilterStrip() {
+        filterStrip.innerHTML = '';
+        FILTERS.forEach(function (entry) {
+          const key = entry[0];
+          const label = entry[1];
+          const tile = document.createElement('button');
+          tile.className = 'filterTile';
+          tile.dataset.filter = key;
+          tile.innerHTML = '<div class="filterThumb"></div><div class="filterName"></div>';
+          tile.querySelector('.filterName').textContent = label;
+          tile.addEventListener('click', function () {
+            onFilterPress(key);
+          });
+          filterStrip.appendChild(tile);
+        });
+      }
+
+      function renderFilterStrip() {
+        const page = activePage();
+        const tiles = filterStrip.children;
+        for (let i = 0; i < tiles.length; i++) {
+          const tile = tiles[i];
+          const key = tile.dataset.filter;
+          const selected = !!page && page.filter === key;
+          tile.classList.toggle('on', selected);
+          tile.disabled = !page || state.running;
+          const holder = tile.querySelector('.filterThumb');
+          let url = '';
+          if (state.thumbs && state.thumbs[key]) url = state.thumbs[key];
+          else if (selected && page && page.thumb) url = page.thumb;
+          holder.style.backgroundImage = url ? 'url("' + url + '")' : '';
+        }
+      }
+
+      function renderAdjust() {
+        adjustPanel.style.display = state.adjustOpen ? 'block' : 'none';
+        if (!state.adjustOpen) return;
+        const page = activePage();
+        if (!page) return;
+        const chips = adjustChips.children;
+        for (let i = 0; i < chips.length; i++) {
+          chips[i].classList.toggle('on', chips[i].dataset.key === state.adjustKey);
+        }
+        const spec = ADJUSTS.find(function (a) { return a[0] === state.adjustKey; });
+        adjustSlider.min = String(spec[2]);
+        adjustSlider.max = String(spec[3]);
+        adjustSlider.value = String(state.draft[state.adjustKey]);
+        adjustValue.textContent = formatAdjust(state.adjustKey, state.draft[state.adjustKey]);
+        adjustHint.textContent = (state.applyAll ? '调节将应用到所有页 · ' : '') + '✓ 保存，✕ 放弃';
+      }
+
+      function buildAdjustChips() {
+        ADJUSTS.forEach(function (entry) {
+          const chip = document.createElement('button');
+          chip.className = 'adjustChip';
+          chip.dataset.key = entry[0];
+          chip.textContent = entry[1];
+          chip.addEventListener('click', function () {
+            state.adjustKey = entry[0];
+            renderAdjust();
+          });
+          adjustChips.appendChild(chip);
+        });
+      }
+
+      function formatAdjust(key, value) {
+        if (key === 'detail') return value + '%';
+        return (value > 0 ? '+' : '') + value;
+      }
+
+      // ---------------------------------------------------------------------
+      // 算法 / 微调
+      // ---------------------------------------------------------------------
+      /**
+       * 逐页重算：先取旋转后的底图，再跑 C++ 算法。
+       * wantData 只给当前显示的页面——其余页面只要文件路径，
+       * 避免一次性把 30 张大图的 base64 塞进 JS 堆。
+       */
+      async function runEdits(targets, plan) {
+        if (state.running || !targets.length) return;
+        state.running = true;
+        const token = ++editSeq;
+        let done = 0;
+        try {
+          for (let i = 0; i < targets.length; i++) {
+            const page = targets[i];
+            const edit = plan(page);
+            const unchanged = page.filter === edit.filter &&
+              page.rotation === edit.rotation &&
+              sameAdjust(page.adjust, edit.adjust);
+            if (!unchanged) {
+              setBusy('正在处理 ' + (done + 1) + '/' + targets.length);
+              page.filter = edit.filter;
+              page.rotation = edit.rotation;
+              page.adjust = edit.adjust;
+              page.previewKey = '';
+              const wantData = page === activePage();
+              const base = await call('base', {
+                input: page.source,
+                rotation: page.rotation,
+                withData: wantData,
+              });
+              if (token !== editSeq) return;
+              page.basePath = base.path;
+              page.baseData = wantData ? (base.data || '') : '';
+              const rendered = await renderInto(page, wantData);
+              if (token !== editSeq) return;
+              page.previewPath = rendered.output;
+              page.previewData = wantData ? (rendered.data || '') : '';
+              page.previewKey = pageKey(page);
+              if (rendered.width) page.width = rendered.width;
+              if (rendered.height) page.height = rendered.height;
+            }
+            done++;
+          }
+        } catch (e) {
+          if (token === editSeq) showToast('处理失败：' + e.message, 3000);
+        } finally {
+          if (token === editSeq) setBusy('');
+          state.running = false;
+        }
+        if (token !== editSeq) return;
+        syncChrome();
+        const page = activePage();
+        if (page) {
+          showPageImage();
+          layoutPhoto();
+          refreshThumbs(page);
+        }
+      }
+
+      /** 点算法方块：第一次应用；再点同一个进入第二步微调 */
+      async function onFilterPress(key) {
+        const page = activePage();
+        if (!page || state.running) return;
+        closeAdjust(false);
+        if (key === page.filter) {
+          const others = state.applyAll
+            ? state.pages.filter(function (p) { return p.filter !== key; })
+            : [];
+          if (!others.length) {
+            openAdjust();
+            return;
+          }
+          await runEdits(others, function (p) {
+            return { filter: key, rotation: p.rotation, adjust: Object.assign({}, ZERO_ADJUST) };
+          });
+          return;
+        }
+        const targets = state.applyAll ? state.pages.slice() : [page];
+        await runEdits(targets, function (p) {
+          return { filter: key, rotation: p.rotation, adjust: Object.assign({}, ZERO_ADJUST) };
+        });
+      }
+
+      function openAdjust() {
+        const page = activePage();
+        if (!page) return;
+        state.draft = {
+          contrast: page.adjust.contrast,
+          brightness: page.adjust.brightness,
+          detail: page.adjust.detail,
+        };
+        state.adjustKey = 'contrast';
+        state.adjustOpen = true;
+        syncChrome();
+      }
+
+      function closeAdjust(restore) {
+        clearTimeout(adjustTimer);
+        adjustSeq++;
+        state.adjustOpen = false;
+        if (adjustFile) {
+          const page = activePage();
+          const keep = page && (adjustFile === page.basePath ||
+            adjustFile === page.previewPath || adjustFile === page.source);
+          if (!keep) {
+            call('delete', { paths: [adjustFile] }).catch(function () {});
+          }
+          adjustFile = '';
+        }
+        if (restore) showPageImage();
+        syncChrome();
+      }
+
+      function onAdjustInput() {
+        state.draft[state.adjustKey] = Number(adjustSlider.value);
+        adjustValue.textContent = formatAdjust(state.adjustKey, state.draft[state.adjustKey]);
+        clearTimeout(adjustTimer);
+        adjustTimer = setTimeout(function () { previewAdjust(); }, 140);
+      }
+
+      /** 滑动时只看 900 px 的图，结束/停顿 140 ms 才触发一次原生处理 */
+      async function previewAdjust() {
+        const page = activePage();
+        if (!page || !state.adjustOpen) return;
+        const token = ++adjustSeq;
+        try {
+          setBusy('预览中…');
+          const rendered = await renderInto(page, true, {
+            adjust: state.draft,
+            maxDim: PREVIEW_BASE_DIM,
+            quality: 85,
+          });
+          if (token !== adjustSeq) {
+            if (rendered.output) cleanupPreviewFile(rendered.output);
+            return;
+          }
+          const previous = adjustFile;
+          adjustFile = rendered.output;
+          if (previous && previous !== adjustFile) cleanupPreviewFile(previous);
+          if (rendered.data) {
+            photo.src = rendered.data;
+            layoutPhoto();
+          }
+        } catch (e) {
+          if (token === adjustSeq) showToast('预览失败：' + e.message, 2000);
+        } finally {
+          if (token === adjustSeq) setBusy('');
+        }
+      }
+
+      function cleanupPreviewFile(path) {
+        const page = activePage();
+        if (!path) return;
+        if (page && (path === page.basePath || path === page.previewPath || path === page.source)) return;
+        call('delete', { paths: [path] }).catch(function () {});
+      }
+
+      function confirmAdjust() {
+        const page = activePage();
+        if (!page || state.running) return;
+        const next = {
+          contrast: state.draft.contrast,
+          brightness: state.draft.brightness,
+          detail: state.draft.detail,
+        };
+        const changed = !sameAdjust(next, page.adjust);
+        closeAdjust(true);
+        if (!changed) return;
+        const targets = state.applyAll ? state.pages.slice() : [page];
+        runEdits(targets, function (p) {
+          return { filter: p.filter, rotation: p.rotation, adjust: next };
+        });
+      }
+
+      // ---------------------------------------------------------------------
+      // 缩略图条
+      // ---------------------------------------------------------------------
+      async function refreshThumbs(page) {
+        if (!page.basePath) return;
+        const key = page.id + '|' + page.basePath;
+        if (state.thumbKey === key && state.thumbs) {
+          renderFilterStrip();
+          return;
+        }
+        const token = ++thumbSeq;
+        state.thumbs = null;
+        state.thumbKey = '';
+        renderFilterStrip();
+        try {
+          const r = await call('thumbs', {
+            input: page.basePath,
+            width: THUMB_BASE_DIM,
+            filters: FILTER_KEYS,
+          });
+          if (token !== thumbSeq) return;
+          const map = {};
+          (r.thumbs || []).forEach(function (t) { map[t.filter] = t.data; });
+          state.thumbs = map;
+          state.thumbKey = key;
+          renderFilterStrip();
+        } catch (e) {
+          // 缩略图失败不影响主流程，选中项继续用页面自带缩略图兜底
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // 旋转 / 增删页
+      // ---------------------------------------------------------------------
+      async function rotateBy(deg) {
+        const page = activePage();
+        if (!page || state.running) return;
+        closeAdjust(false);
+        await runEdits([page], function (p) {
+          return {
+            filter: p.filter,
+            rotation: (p.rotation + deg + 360) % 360,
+            adjust: p.adjust,
+          };
+        });
+      }
+
+      async function removePage() {
+        const page = activePage();
+        if (!page || state.running) return;
+        if (!confirm('删除当前页？')) return;
+        const paths = [];
+        if (page.source) paths.push(page.source);
+        if (page.previewPath && page.previewPath !== page.source) paths.push(page.previewPath);
+        if (page.basePath && page.basePath !== page.source && page.basePath !== page.previewPath) {
+          paths.push(page.basePath);
+        }
+        state.pages.splice(state.active, 1);
+        state.thumbs = null;
+        state.thumbKey = '';
+        if (paths.length) call('delete', { paths: paths }).catch(function () {});
+        if (state.pages.length) {
+          await activate(Math.min(state.active, state.pages.length - 1));
+        } else {
+          state.active = 0;
+          syncChrome();
+          photo.removeAttribute('src');
+          imgRect = null;
+        }
+      }
+
+      async function addImages() {
+        if (state.running) return;
+        const remaining = MAX_PAGES - state.pages.length;
+        if (remaining <= 0) {
+          showToast('单个文档最多 ' + MAX_PAGES + ' 页');
+          return;
+        }
+        state.running = true;
+        setBusy('正在导入…');
+        syncChrome();
+        try {
+          const r = await call('pick', { filter: 'enhance', count: remaining }, 120000);
+          if (!r.pages || !r.pages.length) {
+            setBusy('');
+            return;
+          }
+          const start = state.pages.length;
+          installPages(r.pages, true);
+          await activate(start);
+        } catch (e) {
+          showToast('导入失败：' + e.message, 3000);
+        } finally {
+          state.running = false;
+          setBusy('');
+          syncChrome();
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // 裁剪
+      // ---------------------------------------------------------------------
+      let cropHandles = null;
+
+      function buildCropHandles() {
+        if (cropHandles) return;
+        const corners = [];
+        const edges = [];
+        for (let i = 0; i < 4; i++) {
+          const dot = document.createElement('div');
+          dot.className = 'cornerDot';
+          cropHandlesEl.appendChild(dot);
+          corners.push(dot);
+        }
+        for (let i = 0; i < 4; i++) {
+          const bar = document.createElement('div');
+          bar.className = 'edgeBar';
+          cropHandlesEl.appendChild(bar);
+          edges.push(bar);
+        }
+        cropHandles = { corners: corners, edges: edges };
+      }
+
+      function handlePointPx(quad, handle) {
+        if (!imgRect) return { x: 0, y: 0 };
+        if (handle.kind === 'corner') {
+          return {
+            x: imgRect.x + quad[handle.index * 2] * imgRect.w,
+            y: imgRect.y + quad[handle.index * 2 + 1] * imgRect.h,
+          };
+        }
+        const edge = EDGES[handle.index];
+        const ax = imgRect.x + quad[edge.a * 2] * imgRect.w;
+        const ay = imgRect.y + quad[edge.a * 2 + 1] * imgRect.h;
+        const bx = imgRect.x + quad[edge.b * 2] * imgRect.w;
+        const by = imgRect.y + quad[edge.b * 2 + 1] * imgRect.h;
+        return { x: (ax + bx) / 2, y: (ay + by) / 2 };
+      }
+
+      /** 就近抓取：角点优先，边中点必须更近才赢 */
+      function findHandle(px, py) {
+        let best = null;
+        let bestDist = GRAB_RADIUS;
+        for (let i = 0; i < 4; i++) {
+          const p = handlePointPx(state.quad, { kind: 'corner', index: i });
+          const d = Math.hypot(p.x - px, p.y - py);
+          if (d <= bestDist) {
+            bestDist = d;
+            best = { kind: 'corner', index: i };
+          }
+        }
+        for (let i = 0; i < 4; i++) {
+          const p = handlePointPx(state.quad, { kind: 'edge', index: i });
+          const d = Math.hypot(p.x - px, p.y - py);
+          if (d < bestDist) {
+            bestDist = d;
+            best = { kind: 'edge', index: i };
+          }
+        }
+        return best;
+      }
+
+      function enterCrop() {
+        const page = activePage();
+        if (!page || state.running) return;
+        closeAdjust(false);
+        state.compare = false;
+        state.cropMode = true;
+        state.quad = FULL_QUAD.slice();
+        state.activeHandle = null;
+        buildCropHandles();
+        showPageImage();
+        layoutPhoto();
+        syncChrome();
+      }
+
+      function exitCrop() {
+        state.cropMode = false;
+        state.quad = null;
+        state.drag = null;
+        state.activeHandle = null;
+        hideLoupe();
+        layoutPhoto();
+        syncChrome();
+      }
+
+      function renderCrop() {
+        const on = state.cropMode && !!imgRect && !!activePage();
+        cropLayer.style.display = on ? 'block' : 'none';
+        if (!on) {
+          hideLoupe();
+          return;
+        }
+        const q = state.quad;
+        const valid = isQuadConvex(q);
+        const points = [];
+        for (let i = 0; i < 4; i++) {
+          points.push(
+            (imgRect.x + q[i * 2] * imgRect.w).toFixed(2) + ',' +
+            (imgRect.y + q[i * 2 + 1] * imgRect.h).toFixed(2)
+          );
+        }
+        cropPoly.setAttribute('points', points.join(' '));
+        cropPoly.setAttribute('stroke', valid ? '#4ea1ff' : '#ff453a');
+        cropHint.textContent = valid
+          ? '智能裁剪预览：拖动四角或四边，框住文档区域'
+          : '无效区域：四个点要围成凸四边形，边不能交叉或凹陷';
+        cropHint.classList.toggle('invalid', !valid);
+        cropOk.disabled = !valid;
+
+        for (let i = 0; i < 4; i++) {
+          const dot = cropHandles.corners[i];
+          const x = imgRect.x + q[i * 2] * imgRect.w;
+          const y = imgRect.y + q[i * 2 + 1] * imgRect.h;
+          dot.style.left = (x - CORNER_SIZE / 2) + 'px';
+          dot.style.top = (y - CORNER_SIZE / 2) + 'px';
+          dot.classList.toggle('active', !!state.activeHandle &&
+            state.activeHandle.kind === 'corner' && state.activeHandle.index === i);
+        }
+
+        for (let i = 0; i < 4; i++) {
+          const edge = EDGES[i];
+          const ax = imgRect.x + q[edge.a * 2] * imgRect.w;
+          const ay = imgRect.y + q[edge.a * 2 + 1] * imgRect.h;
+          const bx = imgRect.x + q[edge.b * 2] * imgRect.w;
+          const by = imgRect.y + q[edge.b * 2 + 1] * imgRect.h;
+          const bar = cropHandles.edges[i];
+          bar.style.left = ((ax + bx) / 2 - EDGE_BAR_LENGTH / 2) + 'px';
+          bar.style.top = ((ay + by) / 2 - EDGE_BAR_THICKNESS / 2) + 'px';
+          bar.style.transform = 'rotate(' + Math.atan2(by - ay, bx - ax) + 'rad)';
+          bar.classList.toggle('active', !!state.activeHandle &&
+            state.activeHandle.kind === 'edge' && state.activeHandle.index === i);
+        }
+
+        if (state.drag) updateLoupe();
+      }
+
+      function updateLoupe() {
+        if (!state.drag || !state.cropMode || !imgRect) {
+          hideLoupe();
+          return;
+        }
+        const focus = handlePointPx(state.quad, state.drag.handle);
+        const rect = stage.getBoundingClientRect();
+        loupe.style.display = 'block';
+        loupe.style.left = (rect.left + focus.x - LOUPE_SIZE / 2) + 'px';
+        loupe.style.top = (rect.top + focus.y + state.loupeSide * LOUPE_DISTANCE - LOUPE_SIZE / 2) + 'px';
+
+        const src = photo.currentSrc || photo.src;
+        if (src && loupeImg.getAttribute('src') !== src) loupeImg.src = src;
+        loupeImg.style.width = (imgRect.w * LOUPE_ZOOM) + 'px';
+        loupeImg.style.height = (imgRect.h * LOUPE_ZOOM) + 'px';
+        loupeImg.style.left = (LOUPE_SIZE / 2 - focus.x * LOUPE_ZOOM) + 'px';
+        loupeImg.style.top = (LOUPE_SIZE / 2 - focus.y * LOUPE_ZOOM) + 'px';
+
+        if (state.loupeAngle === null) {
+          loupeCircle.style.display = 'block';
+          loupeBar.style.display = 'none';
+        } else {
+          loupeCircle.style.display = 'none';
+          loupeBar.style.display = 'block';
+          loupeBar.style.transform = 'rotate(' + state.loupeAngle + 'rad)';
+        }
+      }
+
+      function hideLoupe() {
+        loupe.style.display = 'none';
+      }
+
+      async function confirmCrop() {
+        const page = activePage();
+        if (!page || state.running || !state.quad) return;
+        if (isFullQuad(state.quad)) {
+          exitCrop();
+          return;
+        }
+        if (!isQuadConvex(state.quad)) {
+          showToast('无效区域：四个点要围成凸四边形，边不能交叉或凹陷', 2600);
+          return;
+        }
+        if (quadArea(state.quad) < MIN_QUAD_AREA) {
+          showToast('裁剪区域太小：拖动四角或四边，让裁剪范围覆盖文档区域', 2600);
+          return;
+        }
+        const input = page.basePath;
+        if (!input) return;
+        const quad = state.quad.slice();
+        state.running = true;
+        setBusy('正在裁剪…');
+        syncChrome();
+        try {
+          const r = await call('warp', {
+            input: input,
+            quad: quad,
+            quality: 92,
+            maxDim: 1600,
+            withData: false,
+          });
+          const oldSource = page.source;
+          page.source = r.output;
+          page.rotation = 0;
+          page.basePath = page.source;
+          page.baseData = '';
+          page.previewKey = '';
+          // 旧的源图（以及它的旋转中间文件）已经被新图取代
+          const garbage = [oldSource];
+          if (input !== oldSource) garbage.push(input);
+          call('delete', { paths: garbage }).catch(function () {});
+          exitCrop();
+          await activate(state.active);
+        } catch (e) {
+          showToast('裁剪失败：' + e.message, 3000);
+        } finally {
+          state.running = false;
+          setBusy('');
+          syncChrome();
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // 导出
+      // ---------------------------------------------------------------------
+      function docTitle() {
+        const raw = (titleInput.value || '').trim() || '扫描文档';
+        return raw.replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
+      }
+
+      function exportPaths() {
+        return state.pages
+          .map(function (p) { return p.previewPath; })
+          .filter(function (p) { return !!p; });
+      }
+
+      async function saveImages() {
+        if (state.running) return;
+        const paths = exportPaths();
+        if (!paths.length) {
+          showToast('没有可保存的页面');
+          return;
+        }
+        state.running = true;
+        setBusy('正在保存到相册…');
+        syncChrome();
+        try {
+          const r = await call('saveImages', {
+            paths: paths,
+            title: docTitle(),
+          }, 180000);
+          if (r.saved) showToast('已保存 ' + r.count + ' 页到系统相册');
+          else showToast('已取消保存');
+        } catch (e) {
+          showToast('保存失败：' + e.message, 3000);
+        } finally {
+          state.running = false;
+          setBusy('');
+          syncChrome();
+        }
+      }
+
+      async function savePdf() {
+        if (state.running) return;
+        const paths = exportPaths();
+        if (!paths.length) {
+          showToast('没有可导出的页面');
+          return;
+        }
+        state.running = true;
+        setBusy('正在生成 PDF…');
+        syncChrome();
+        try {
+          const r = await call('pdf', {
+            paths: paths,
+            title: docTitle(),
+          }, 180000);
+          if (r.saved) showToast('PDF 已保存（' + r.count + ' 页）');
+          else showToast('已取消保存');
+        } catch (e) {
+          showToast('生成 PDF 失败：' + e.message, 3000);
+        } finally {
+          state.running = false;
+          setBusy('');
+          syncChrome();
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // 事件绑定
+      // ---------------------------------------------------------------------
+      photo.addEventListener('load', function () {
+        layoutPhoto();
+        if (state.drag) updateLoupe();
+      });
+
+      btnPrev.addEventListener('click', function () {
+        if (state.active > 0) activate(state.active - 1);
+      });
+      btnNext.addEventListener('click', function () {
+        if (state.active < state.pages.length - 1) activate(state.active + 1);
+      });
+
+      // 「原图 | 对比」：按住看原图，松开回预览
+      const compareOn = function (e) {
+        if (!activePage() || state.cropMode) return;
+        e.preventDefault();
+        state.compare = true;
+        btnCompare.classList.add('on');
+        showPageImage();
       };
+      const compareOff = function () {
+        if (!state.compare) return;
+        state.compare = false;
+        btnCompare.classList.remove('on');
+        showPageImage();
+      };
+      btnCompare.addEventListener('pointerdown', compareOn);
+      btnCompare.addEventListener('pointerup', compareOff);
+      btnCompare.addEventListener('pointercancel', compareOff);
+      btnCompare.addEventListener('pointerleave', compareOff);
+
+      btnDelete.addEventListener('click', removePage);
+
+      document.getElementById('btnApplyAll').addEventListener('click', function () {
+        state.applyAll = !state.applyAll;
+        document.getElementById('applyBox').classList.toggle('on', state.applyAll);
+        document.getElementById('applyBox').textContent = state.applyAll ? '✓' : '';
+        this.setAttribute('aria-checked', state.applyAll ? 'true' : 'false');
+        if (state.adjustOpen) renderAdjust();
+      });
+
+      document.querySelectorAll('.tool').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const tool = btn.dataset.tool;
+          if (tool === 'add') addImages();
+          else if (tool === 'left') rotateBy(270);
+          else if (tool === 'right') rotateBy(90);
+          else if (tool === 'crop') enterCrop();
+          else if (tool === 'ocr') showToast('OCR 文字识别功能正在开发中。', 2400);
+        });
+      });
+
+      adjustSlider.addEventListener('input', onAdjustInput);
+      adjustSlider.addEventListener('change', onAdjustInput);
+      document.getElementById('adjustCancel').addEventListener('click', function () {
+        closeAdjust(true);
+      });
+      document.getElementById('adjustOk').addEventListener('click', confirmAdjust);
+
+      document.getElementById('btnSaveImages').addEventListener('click', saveImages);
+      document.getElementById('btnSavePdf').addEventListener('click', savePdf);
+      btnShare.addEventListener('click', savePdf);
+      document.getElementById('btnBack').addEventListener('click', function () {
+        if (state.running) {
+          showToast('正在处理，请稍候');
+          return;
+        }
+        if (confirm('返回将放弃当前编辑并重新载入示例文档，确定吗？')) {
+          window.location.reload();
+        }
+      });
+
+      // 裁剪手势：在整层上「就近抓取」，不必精确点中手柄
+      cropLayer.addEventListener('pointerdown', function (e) {
+        if (!state.cropMode || !imgRect || state.running) return;
+        const rect = stage.getBoundingClientRect();
+        const handle = findHandle(e.clientX - rect.left, e.clientY - rect.top);
+        if (!handle) return;
+        e.preventDefault();
+        state.activeHandle = handle;
+        state.drag = {
+          handle: handle,
+          start: state.quad.slice(),
+          clientX: e.clientX,
+          clientY: e.clientY,
+          pointerId: e.pointerId,
+        };
+        const focus = handlePointPx(state.quad, handle);
+        // 朝上还是朝下只在按下时决定一次，拖动中不会跳过另一侧
+        state.loupeSide = focus.y >= LOUPE_DISTANCE + LOUPE_SIZE / 2 ? -1 : 1;
+        if (handle.kind === 'edge') {
+          const edge = EDGES[handle.index];
+          const ax = state.quad[edge.a * 2] * imgRect.w;
+          const ay = state.quad[edge.a * 2 + 1] * imgRect.h;
+          const bx = state.quad[edge.b * 2] * imgRect.w;
+          const by = state.quad[edge.b * 2 + 1] * imgRect.h;
+          state.loupeAngle = Math.atan2(by - ay, bx - ax);
+        } else {
+          state.loupeAngle = null;
+        }
+        try { cropLayer.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+        updateLoupe();
+        renderCrop();
+      });
+
+      cropLayer.addEventListener('pointermove', function (e) {
+        const drag = state.drag;
+        if (!drag || !imgRect) return;
+        e.preventDefault();
+        const dnx = (e.clientX - drag.clientX) / imgRect.w;
+        const dny = (e.clientY - drag.clientY) / imgRect.h;
+        state.quad = moveQuad(drag.start, drag.handle, dnx, dny);
+        renderCrop();
+      });
+
+      function endDrag() {
+        if (!state.drag) return;
+        state.drag = null;
+        state.activeHandle = null;
+        hideLoupe();
+        renderCrop();
+      }
+      cropLayer.addEventListener('pointerup', endDrag);
+      cropLayer.addEventListener('pointercancel', endDrag);
+
+      document.getElementById('cropCancel').addEventListener('click', exitCrop);
+      document.getElementById('cropReset').addEventListener('click', function () {
+        state.quad = FULL_QUAD.slice();
+        renderCrop();
+      });
+      cropOk.addEventListener('click', confirmCrop);
+
+      window.addEventListener('resize', function () {
+        layoutPhoto();
+      });
+
+      // ---------------------------------------------------------------------
+      // 启动
+      // ---------------------------------------------------------------------
+      async function loadSample() {
+        try {
+          setBusy('正在载入示例文档…');
+          const r = await call('sample', { filter: 'enhance' }, 120000);
+          if (!r.pages || !r.pages.length) {
+            showToast('示例图未就绪（检查 rawfile/sample.jpg）', 3000);
+            return;
+          }
+          installPages(r.pages, false);
+          await activate(0);
+        } catch (e) {
+          showToast('示例载入失败：' + e.message, 3000);
+        } finally {
+          setBusy('');
+        }
+      }
+
+      function boot() {
+        if (booted) return;
+        if (!window.nativeBridge || !window.nativeBridge.dispatch) {
+          setTimeout(boot, 200);
+          return;
+        }
+        booted = true;
+        let version = '?';
+        try {
+          version = window.nativeBridge.version ? window.nativeBridge.version() : '?';
+        } catch (e) { /* ignore */ }
+        coreLine.textContent = 'image-core ' + version + ' · 算法在共享 C++';
+        buildFilterStrip();
+        buildAdjustChips();
+        syncChrome();
+        loadSample();
+      }
+
+      // ArkTS 在 onPageEnd 也会调一次；boot 自带幂等
+      window.__onNativeReady = boot;
+      boot();
     })();
   </script>
 </body>

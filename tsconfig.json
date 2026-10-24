@@ -5,6 +5,7 @@
   },
   "exclude": [
     "node_modules",
+    "build",
     "harmony/entry/build",
     "harmony/**/oh_modules",
     "harmony/hvigorfile.ts",

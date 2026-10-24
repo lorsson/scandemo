@@ -1,12 +1,15 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { applyFilter, discardFiltered } from './filterRunner';
+import { isZeroAdjust, sanitizeAdjust, type PageAdjust } from './filters';
 import { readBase64, rotateImage } from './imagePipeline';
-import type { FilterKey, PdfPage, Rotation } from '../types';
+import type { DocPage, FilterKey, Rotation } from '../types';
 
 export type PageEditPlan = {
   filter: FilterKey;
   rotation: Rotation;
+  /** 第二步微调；不传按全 0 处理 */
+  adjust?: PageAdjust | null;
 };
 
 /**
@@ -20,11 +23,12 @@ export type PageEditPlan = {
  * 批量应用算法和「恢复原图」都走这条路径，保证任何入口的结果一致。
  */
 export async function renderPageBase64(
-  page: PdfPage,
+  page: DocPage,
   edit: PageEditPlan,
 ): Promise<string> {
   let workUri = page.originalUri;
   let rotatedUri: string | null = null;
+  const adjust = sanitizeAdjust(edit.adjust);
 
   try {
     if (edit.rotation !== 0) {
@@ -32,11 +36,11 @@ export async function renderPageBase64(
       rotatedUri = workUri;
     }
 
-    if (edit.filter === 'original') {
+    if (edit.filter === 'original' && isZeroAdjust(adjust)) {
       return await readBase64(workUri);
     }
 
-    const filtered = await applyFilter(workUri, edit.filter);
+    const filtered = await applyFilter(workUri, edit.filter, adjust);
     try {
       return filtered.base64 ?? (await readBase64(filtered.uri));
     } finally {

@@ -2,22 +2,35 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   StyleSheet,
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker';
 
 import HomeScreen from './src/screens/HomeScreen';
+import DocsScreen from './src/screens/DocsScreen';
+import ToolsScreen from './src/screens/ToolsScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
 import CameraScreen from './src/screens/CameraScreen';
+import PhotoPickerScreen from './src/screens/PhotoPickerScreen';
+import ScanEditorScreen from './src/screens/ScanEditorScreen';
 import EditorScreen from './src/screens/EditorScreen';
 import DocumentScreen from './src/screens/DocumentScreen';
 import PdfScreen from './src/screens/PdfScreen';
-import { loadDocs, persistImage, removeImage, saveIndex } from './src/lib/storage';
+import PdfReaderScreen from './src/screens/PdfReaderScreen';
+import TabBar, { type TabKey } from './src/components/TabBar';
+import {
+  discardScanDraft,
+  loadDocs,
+  removeScanDoc,
+  saveIndex,
+} from './src/lib/storage';
 import { resolveBundledAsset } from './src/lib/imagePipeline';
+import { titleFromUri } from './src/lib/format';
 import { FilterEngineHost } from './src/lib/filterEngine';
-import { initPdfLimits } from './src/lib/pdfLimits';
+import { getPdfLimits, initPdfLimits } from './src/lib/pdfLimits';
 import {
   loadPdfs,
   removePdfProject,
@@ -30,10 +43,29 @@ import type { FilterKey, PdfDoc, Rotation, ScanDoc } from './src/types';
 type Route =
   | { name: 'home' }
   | { name: 'camera' }
-  | { name: 'editor'; sourceUri: string; title: string }
+  | {
+      name: 'picker';
+      title: string;
+      /** 取消后回到哪里：首页或相机 */
+      returnTo: 'home' | 'camera';
+    }
+  | {
+      name: 'scanEditor';
+      /** 草稿 id：同时也是保存后的 ScanDoc id 和项目目录名 */
+      draftId: string;
+      sourceUris: string[];
+      title: string;
+    }
   | { name: 'doc'; doc: ScanDoc }
   | { name: 'pdf'; doc: PdfDoc }
-  | { name: 'pageEditor'; doc: PdfDoc; pageId: string };
+  | { name: 'pdfReader'; doc: PdfDoc; initialPage?: number }
+  | {
+      name: 'pageEditor';
+      doc: PdfDoc;
+      pageId: string;
+      /** 编辑保存/取消后回到哪里：排版页还是阅读器 */
+      backTo?: 'pdf' | 'pdfReader';
+    };
 
 /** 页面改动时间至少晚于上一次生成 1ms，保证 dirty 判定成立 */
 function nextUpdatedAt(generatedAt: number | null): number {
@@ -51,6 +83,8 @@ export default function App() {
   const [pdfs, setPdfs] = useState<PdfDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [route, setRoute] = useState<Route>({ name: 'home' });
+  /** 底部 tab 独立于页面路由：进入相机/编辑器再回来仍停在原来的 tab */
+  const [tab, setTab] = useState<TabKey>('home');
   const pdfsRef = useRef<PdfDoc[]>([]);
 
   useEffect(() => {
@@ -74,6 +108,17 @@ export default function App() {
     void initPdfLimits();
   }, []);
 
+  // 底部 tab 页按返回键先回首页，首页再按才退出（与常见的扫描类 App 一致）
+  useEffect(() => {
+    if (route.name !== 'home') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (tab === 'home') return false;
+      setTab('home');
+      return true;
+    });
+    return () => sub.remove();
+  }, [route.name, tab]);
+
   const commitPdfs = useCallback((next: PdfDoc[]) => {
     pdfsRef.current = next;
     setPdfs(next);
@@ -93,31 +138,37 @@ export default function App() {
     [commitPdfs],
   );
 
-  const goEditor = (sourceUri: string, title: string) =>
-    setRoute({ name: 'editor', sourceUri, title });
+  /**
+   * 打开扫描编辑器：批量图片 → 多页预览/调整 → 导出图片 / PDF。
+   * 标题默认取第一张图片的文件名，编辑器里还能改。
+   */
+  const goScanEditor = (sourceUris: string[], name?: string) => {
+    if (sourceUris.length === 0) return;
+    setRoute({
+      name: 'scanEditor',
+      draftId: `${Date.now()}`,
+      sourceUris,
+      title: titleFromUri(name || sourceUris[0]),
+    });
+  };
 
   const handleSample = async () => {
     try {
       const uri = await resolveBundledAsset(require('./assets/sample_doc.jpg'));
-      goEditor(uri, '示例文档');
+      goScanEditor([uri], '示例文档');
     } catch {
       Alert.alert('加载示例失败', '请改用拍照或相册导入。');
     }
   };
 
-  const handleImport = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('未获得相册权限', '请在系统设置中允许访问相册。');
-      return;
-    }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 1,
-    });
-    if (!res.canceled && res.assets[0]?.uri) {
-      goEditor(res.assets[0].uri, '导入图片');
-    }
+  /** 相册批量导入：先打开应用内选择器，选完一次性进编辑器 */
+  const handleImport = () =>
+    setRoute({ name: 'picker', title: '导入图片', returnTo: 'home' });
+
+  /** 取消导入：草稿文件（含已导入的页面）全部丢弃 */
+  const handleScanCancel = (draftId: string) => {
+    setRoute({ name: 'home' });
+    void discardScanDraft(draftId);
   };
 
   /**
@@ -144,12 +195,18 @@ export default function App() {
     });
   };
 
-  const handleOpenPdf = (pdf: PdfDoc) => setRoute({ name: 'pdf', doc: pdf });
+  /** 首页点 PDF 记录：直接打开内置阅读器，先读再改 */
+  const handleOpenPdf = (pdf: PdfDoc) =>
+    setRoute({ name: 'pdfReader', doc: pdf });
 
-  const handleEditPage = (pdf: PdfDoc, pageId: string) =>
-    setRoute({ name: 'pageEditor', doc: pdf, pageId });
+  /** 从排版页/阅读器打开单页编辑器 */
+  const handleEditPage = (
+    pdf: PdfDoc,
+    pageId: string,
+    backTo: 'pdf' | 'pdfReader' = 'pdf',
+  ) => setRoute({ name: 'pageEditor', doc: pdf, pageId, backTo });
 
-  /** 单页编辑保存：写新文件 + 缩略图，更新 doc，回到 PDF 排版页重新生成 */
+  /** 单页编辑保存：写新文件 + 缩略图，更新 doc，回到排版页或阅读器 */
   const handlePageSave = async (
     pdf: PdfDoc,
     pageId: string,
@@ -158,10 +215,17 @@ export default function App() {
       filter: FilterKey;
       rotation: Rotation;
     },
+    backTo: 'pdf' | 'pdfReader' = 'pdf',
   ) => {
+    /** 依据来源决定编辑完成后回哪里 */
+    const to = (d: PdfDoc): Route =>
+      backTo === 'pdfReader'
+        ? { name: 'pdfReader', doc: d }
+        : { name: 'pdf', doc: d };
+
     const page = pdf.pages.find((item) => item.id === pageId);
     if (!page) {
-      setRoute({ name: 'pdf', doc: pdf });
+      setRoute(to(pdf));
       return;
     }
 
@@ -187,13 +251,13 @@ export default function App() {
             )
           : [nextDoc, ...pdfsRef.current],
       );
-      setRoute({ name: 'pdf', doc: nextDoc });
+      setRoute(to(nextDoc));
     } catch (error) {
       Alert.alert(
         '保存失败',
         error instanceof Error ? error.message : '未知错误',
       );
-      setRoute({ name: 'pdf', doc: pdf });
+      setRoute(to(pdf));
     }
   };
 
@@ -216,36 +280,11 @@ export default function App() {
     ]);
   };
 
-  const handleSave = async ({
-    base64,
-    filter,
-    title,
-  }: {
-    base64: string;
-    filter: FilterKey;
-    title: string;
-  }) => {
-    const id = `${Date.now()}`;
-    const uri = await persistImage(base64, id);
-    const doc: ScanDoc = {
-      id,
-      uri,
-      thumbUri: uri,
-      filter,
-      createdAt: Date.now(),
-      title: makeTitle(title),
-    };
-    const next = [doc, ...docs];
-    setDocs(next);
-    await saveIndex(next);
-    setRoute({ name: 'home' });
-  };
-
   const handleDelete = async (doc: ScanDoc) => {
-    await removeImage(doc.uri);
     const next = docs.filter((d) => d.id !== doc.id);
     setDocs(next);
     await saveIndex(next);
+    await removeScanDoc(doc);
     setRoute({ name: 'home' });
   };
 
@@ -260,7 +299,7 @@ export default function App() {
   // PDF 排版页是浅色界面，状态栏文字保持深色
   const darkScreen =
     route.name === 'camera' ||
-    route.name === 'editor' ||
+    route.name === 'scanEditor' ||
     route.name === 'doc' ||
     route.name === 'pageEditor';
 
@@ -269,34 +308,81 @@ export default function App() {
       <StatusBar style={darkScreen ? 'light' : 'dark'} />
       <FilterEngineHost />
       {route.name === 'home' && (
-        <HomeScreen
-          docs={docs}
-          pdfs={pdfs}
-          onScan={() => setRoute({ name: 'camera' })}
-          onImport={handleImport}
-          onSample={handleSample}
-          onCreatePdf={handleCreatePdf}
-          onOpenDoc={(doc) => setRoute({ name: 'doc', doc })}
-          onDeleteDoc={handleDelete}
-          onOpenPdf={handleOpenPdf}
-          onDeletePdf={handleDeletePdf}
-        />
+        <View style={styles.shell}>
+          <View style={styles.shellBody}>
+            {tab === 'home' && (
+              <HomeScreen
+                docs={docs}
+                pdfs={pdfs}
+                onScan={() => setRoute({ name: 'camera' })}
+                onImport={handleImport}
+                onSample={handleSample}
+                onCreatePdf={handleCreatePdf}
+                onOpenDoc={(doc) => setRoute({ name: 'doc', doc })}
+                onDeleteDoc={handleDelete}
+                onOpenPdf={handleOpenPdf}
+                onDeletePdf={handleDeletePdf}
+              />
+            )}
+            {tab === 'docs' && (
+              <DocsScreen
+                docs={docs}
+                pdfs={pdfs}
+                onOpenDoc={(doc) => setRoute({ name: 'doc', doc })}
+                onOpenPdf={handleOpenPdf}
+                onDeleteDoc={handleDelete}
+                onDeletePdf={handleDeletePdf}
+                onCreatePdf={handleCreatePdf}
+              />
+            )}
+            {tab === 'tools' && (
+              <ToolsScreen
+                onCreatePdf={handleCreatePdf}
+                onScan={() => setRoute({ name: 'camera' })}
+                onImport={handleImport}
+                onSample={handleSample}
+              />
+            )}
+            {tab === 'profile' && <ProfileScreen docs={docs} pdfs={pdfs} />}
+          </View>
+          <TabBar
+            active={tab}
+            onChange={setTab}
+            onScan={() => setRoute({ name: 'camera' })}
+          />
+        </View>
       )}
 
       {route.name === 'camera' && (
         <CameraScreen
-          onCaptured={(uri) => goEditor(uri, '拍照扫描')}
+          onCaptured={(uri) => goScanEditor([uri])}
           onCancel={() => setRoute({ name: 'home' })}
-          onPickGallery={handleImport}
+          onPickGallery={() =>
+            setRoute({ name: 'picker', title: '导入图片', returnTo: 'camera' })
+          }
         />
       )}
 
-      {route.name === 'editor' && (
-        <EditorScreen
-          sourceUri={route.sourceUri}
+      {route.name === 'picker' && (
+        <PhotoPickerScreen
+          limit={getPdfLimits().pageLimit}
           title={route.title}
-          onCancel={() => setRoute({ name: 'home' })}
-          onSave={handleSave}
+          onCancel={() =>
+            setRoute(
+              route.returnTo === 'camera' ? { name: 'camera' } : { name: 'home' },
+            )
+          }
+          onDone={(uris, names) => goScanEditor(uris, names[0])}
+        />
+      )}
+
+      {route.name === 'scanEditor' && (
+        <ScanEditorScreen
+          key={route.draftId}
+          draftId={route.draftId}
+          initialUris={route.sourceUris}
+          title={route.title}
+          onCancel={() => handleScanCancel(route.draftId)}
         />
       )}
 
@@ -314,15 +400,42 @@ export default function App() {
           doc={route.doc}
           onBack={() => setRoute({ name: 'home' })}
           onUpdate={handleUpdatePdf}
+          onRead={() =>
+            setRoute({
+              name: 'pdfReader',
+              doc:
+                pdfsRef.current.find((item) => item.id === route.doc.id) ??
+                route.doc,
+            })
+          }
           onEditPage={(pageId) => {
             // route.doc 是打开时的快照；增删/排序后的最新版本在 ref 里
             const latest =
               pdfsRef.current.find((item) => item.id === route.doc.id) ??
               route.doc;
-            handleEditPage(latest, pageId);
+            handleEditPage(latest, pageId, 'pdf');
           }}
         />
       )}
+
+      {route.name === 'pdfReader' &&
+        (() => {
+          const latest =
+            pdfsRef.current.find((item) => item.id === route.doc.id) ??
+            route.doc;
+          return (
+            <PdfReaderScreen
+              key={route.doc.id}
+              doc={latest}
+              initialPage={route.initialPage}
+              onBack={() => setRoute({ name: 'home' })}
+              onEditLayout={() => setRoute({ name: 'pdf', doc: latest })}
+              onEditPage={(pageId) =>
+                handleEditPage(latest, pageId, 'pdfReader')
+              }
+            />
+          );
+        })()}
 
       {route.name === 'pageEditor' &&
         (() => {
@@ -331,6 +444,11 @@ export default function App() {
           );
           const page = route.doc.pages[pageIndex];
           if (!page) return null;
+          const backTo = route.backTo ?? 'pdf';
+          const backDest = (d: PdfDoc): Route =>
+            backTo === 'pdfReader'
+              ? { name: 'pdfReader', doc: d }
+              : { name: 'pdf', doc: d };
           return (
             <EditorScreen
               sourceUri={page.originalUri}
@@ -339,9 +457,9 @@ export default function App() {
               initialFilter={page.filter}
               initialRotation={page.rotation}
               showPageTools
-              onCancel={() => setRoute({ name: 'pdf', doc: route.doc })}
+              onCancel={() => setRoute(backDest(route.doc))}
               onSave={(payload) =>
-                handlePageSave(route.doc, page.id, payload)
+                handlePageSave(route.doc, page.id, payload, backTo)
               }
             />
           );
@@ -357,4 +475,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  shell: { flex: 1 },
+  shellBody: { flex: 1 },
 });
