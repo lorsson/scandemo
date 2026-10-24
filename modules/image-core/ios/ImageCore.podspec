@@ -21,5 +21,7 @@ Pod::Spec.new do |s|
 
   s.libraries = 'c++'
 
-  s.source_files = '**/*.{h,m,mm,swift}', '../common/*.{h,hpp,cpp}'
+  # C++ 共享算法 (../common/image_core.cpp) 在 ImageCoreBridge.mm 里 #include 进来编译，
+  # 因为 CocoaPods 忽略 pod 根目录之外('../common/')的 source_files。
+  s.source_files = '**/*.{h,m,mm,swift}'
 end
