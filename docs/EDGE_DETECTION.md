@@ -297,8 +297,10 @@ PDF 字节流，思路最接近「原生流式」：
 
 内存里同时只有一页 JPEG（处理下一页时上一页已释放），页数只受磁盘限制。
 鸿蒙端 `PdfPage.ets` 把上限设为 30 页，用的是保守值而不是技术限制。
-字节布局已在宿主侧用 Node 镜像验证：2 页 PDF、8 条 xref 全部指向正确的
-`N 0 obj`，`/Count` 与 `/MediaBox` 正确。
+宿主侧直接编译运行了 `PdfWriter.ets` 本体（`tsc --strict` + `fileIo` 桩）：
+1/2 页各 13/13 项字节校验通过（8 条 xref 全部指向正确的 `N 0 obj`、`/Count`、
+`/MediaBox`、内容流 `/Length` 精确、嵌入 JPEG 与源文件逐字节一致），并用
+`pdf-lib` 独立解析确认为 2 页 A4。
 
 这套写入器同样可以作为 Android/iOS 的参考实现（C++ 版本可直接复用到
 `modules/image-core/common/`）。

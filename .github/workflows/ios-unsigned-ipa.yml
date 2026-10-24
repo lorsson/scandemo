@@ -17,7 +17,9 @@ concurrency:
 
 jobs:
   build-ios-unsigned:
-    runs-on: macos-15
+    # Expo SDK 58 的 SwiftPM 依赖要求 Swift tools 6.2（= Xcode 26），
+    # 只有 macos-26（macOS 26 Tahoe / Xcode 26.x）提供，macos-15 只有 Swift 6.1。
+    runs-on: macos-26
     timeout-minutes: 120
 
     steps:
@@ -49,6 +51,11 @@ jobs:
       - name: Pod install
         working-directory: ios
         run: pod install --repo-update
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          swift --version 2>&1 | grep -E 'Swift version' || true
 
       - name: Build (unsigned)
         run: |

@@ -307,7 +307,7 @@ npx expo install --fix
 | Expo Go PDF | 沙盒复制失败后自动改走 base64，生成成功 |
 | 自动算法 / 批量应用 | 模拟器 debug APK 通过：导入 2 张即按「增强」自动处理；单页改「黑白」保存后缩略图与标签同步；「对整个文档执行」弹覆盖提示后可批量改回；重启后 2 页 / 增强 状态保留 |
 | 页数自适应 | 模拟器实测 1.5 GB RAM / 384 MB 堆 → 页脚显示「单次最多 15 页」；该文档 2 页 PDF 生成成功且为 A4 |
-| 鸿蒙 PDF | HAP `BUILD SUCCESSFUL`（API 12）；`PdfWriter` 的 PDF 字节布局在宿主侧用 Node 镜像验证（2 页、xref 8/8 有效）；未在真机运行 |
+| 鸿蒙 PDF | HAP `BUILD SUCCESSFUL`（API 12）；`PdfWriter.ets` 本体经 `tsc --strict` 编译 + `fileIo` 桩在宿主运行，1/2 页各 13/13 字节校验通过（xref 8/8、嵌入 JPEG 与源文件逐字节一致），`pdf-lib` 独立解析为 2 页 A4；未在真机/模拟器运行（本机无 DevEco 与模拟器镜像） |
 | iOS / 鸿蒙 | 桥接层宿主侧通过；App 未在真机运行 |
 
 ---

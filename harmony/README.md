@@ -176,7 +176,31 @@ real-name-verified Huawei ID), so the bridge was verified on the host:
 - same-machine loop time (480k px): C++ 1.77/1.88/3.63 ms vs Canvas
   3.2/5.0/5.8 ms for gray/bw/enhance.
 
+### PdfWriter on the host (`D:\tools-src\wsl\lib\harmony_pdfwriter_test`)
+
+`PdfWriter.ets` depends only on `fileIo`, so the **actual source file** (copied
+as `.ts`, import path swapped) is compiled with `tsc --strict` and run in Node
+against a `fileIo` shim backed by `fs`. No hand-written mirror involved.
+
+- 1-page and 2-page PDFs from the real `assets/sample_doc.jpg`;
+- 13/13 byte checks each: header, `startxref` target, 20-byte xref entries all
+  resolving to `N 0 obj`, `/Size` vs xref, `/Root`, `/Count`, `/Kids` token
+  count, A4 `MediaBox` per page, exact content `/Length`, one embedded JPEG per
+  page, embedded bytes **identical** to the source JPEG, image width/height;
+- independent third-party parse with `pdf-lib`: 2 pages, 595.00×842.00, each
+  page has `/Im0` 1200×1600.
+
 What host testing cannot cover: the ArkTS `@ohos.multimedia.image` runtime, the
-`<Web>`/`javaScriptProxy` bridge, and any UIKit/CoreGraphics behaviour in the
-iOS Swift layer.
+`<Web>`/`javaScriptProxy` bridge, the photo/document pickers, and any
+UIKit/CoreGraphics behaviour in the iOS Swift layer.
+
+### Emulator status
+
+`hdc list targets` is empty and DevEco Studio is not installed. The official
+HarmonyOS emulator is only distributed through DevEco Studio 5.x and its images
+need a real-name-verified Huawei ID (login-gated, so it cannot be installed
+unattended); the machine also has 8 GB RAM, below the emulator's 16 GB
+requirement. The winget package `Huawei.DevEco` is DevEco 3.1 (API 9) and
+cannot run this API 12 HAP. Running the HAP therefore still requires a real
+HarmonyOS device or a DevEco-equipped machine.
 
