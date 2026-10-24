@@ -1,6 +1,7 @@
 import CoreGraphics
 import ExpoModulesCore
 import Foundation
+import ImageIO
 import UIKit
 
 public final class ImageCoreModule: Module {

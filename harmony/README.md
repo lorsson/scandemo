@@ -195,7 +195,9 @@ real-name-verified Huawei ID), so the bridge was verified on the host:
 
 `D:\tools-src\wsl\lib\apple_host_test`
 - compiles `ImageCoreBridge.mm` (pure C++, no Objective-C) with the shared core
-  and runs 16 checks on the host.
+  and runs 35 checks on the host: filter curves, alpha, `processPixelsEx`,
+  warp size/pixel-exact full-quad copy, resize size/no-upscale, rotate
+  90/180/270, and argument validation.
 
 `D:\tools-src\wsl\lib\cross_contract_check.js`
 - asserts all bindings agree on filter ids, pixel layout, result fields and

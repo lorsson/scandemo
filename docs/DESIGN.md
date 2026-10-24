@@ -1483,7 +1483,7 @@ iOS：分享面板）。模拟器上系统面板本身要 3–5 s，之前这段
 |---|---|---|
 | WebView 引擎 | headless Edge 执行真实 HTML，11 项引擎 + 52 项 H5 编辑器 | 63/63 |
 | Android NAPI 桥 | `napi_init.cpp` 编为 Node 插件 | 10/10 + 12 MP 计时 |
-| iOS 桥 | `ImageCoreBridge.mm` 编到 Linux | 16/16 |
+| iOS 桥 | `ImageCoreBridge.mm` 在宿主用 g++ 编译（纯 C++） | 35/35（滤镜/微调/几何/参数校验） |
 | 跨端契约 | filter id、像素布局、字段、模块名 | 44/44 |
 | Android 应用 | 模拟器安装 release APK，示例文档→三种滤镜→保存→首页记录 | 通过（相机/相册导出未在模拟器验证） |
 | 图片转 PDF | 模拟器 debug APK：多选导入→排序→生成→单页灰度→重新生成→分享 | 通过（1/3 页 PDF 均为 A4，页数正确） |
