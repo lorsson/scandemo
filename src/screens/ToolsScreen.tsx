@@ -13,6 +13,7 @@ type Props = {
   onScan: () => void;
   onImport: () => void;
   onSample: () => void;
+  onOcr: () => void;
 };
 
 type Tool = {
@@ -42,12 +43,6 @@ const UPCOMING: {
     hintKey: 'annotateHint',
     icon: 'pencil-outline',
   },
-  {
-    key: 'ocr',
-    labelKey: 'ocr',
-    hintKey: 'ocrHint',
-    icon: 'text-outline',
-  },
 ];
 
 export default function ToolsScreen({
@@ -55,6 +50,7 @@ export default function ToolsScreen({
   onScan,
   onImport,
   onSample,
+  onOcr,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { t } = useI18n();
@@ -83,6 +79,14 @@ export default function ToolsScreen({
       icon: 'images-outline',
       color: '#8a5cf6',
       onPress: onImport,
+    },
+    {
+      key: 'ocr',
+      label: t('ocr'),
+      hint: t('ocrHint'),
+      icon: 'text-outline',
+      color: '#e0563d',
+      onPress: onOcr,
     },
     {
       key: 'sample',

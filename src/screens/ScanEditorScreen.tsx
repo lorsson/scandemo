@@ -37,6 +37,7 @@ import CropLoupe, {
 } from '../components/CropLoupe';
 import CameraScreen from './CameraScreen';
 import PhotoPickerScreen from './PhotoPickerScreen';
+import OcrScreen from './OcrScreen';
 import { isNativeGeometryAvailable } from '../../modules/image-core';
 import { isAbortError, throwIfAborted } from '../lib/abort';
 import {
@@ -175,6 +176,8 @@ export default function ScanEditorScreen({
   const [pickerMode, setPickerMode] = useState<'add' | 'replace' | null>(null);
   /** 重拍当前页：编辑器内直接拉起相机，拍完替换这一页 */
   const [cameraMode, setCameraMode] = useState(false);
+  /** 「提取文字」：以覆盖层打开 OCR，编辑器状态保持不变 */
+  const [ocrOpen, setOcrOpen] = useState(false);
 
   /** 算法是否应用到所有页（默认勾选） */
   const [applyAll, setApplyAll] = useState(true);
@@ -2080,9 +2083,7 @@ export default function ScanEditorScreen({
                 glyph="T"
                 label={t('extractText')}
                 disabled={!canInteract || !activePage}
-                onPress={() =>
-                  Alert.alert(t('ocrComingTitle'), t('ocrComingBody'))
-                }
+                onPress={() => setOcrOpen(true)}
               />
             </View>
 
@@ -2154,6 +2155,19 @@ export default function ScanEditorScreen({
                 void addImages(uris, true);
               }
             }}
+          />
+        </View>
+      )}
+
+      {/* 提取文字：覆盖在编辑器上，关闭后回到原来的编辑状态 */}
+      {ocrOpen && activePage && (
+        <View style={StyleSheet.absoluteFill}>
+          <OcrScreen
+            initialUris={[activePage.uri]}
+            autoStart
+            autoCrop={false}
+            initialTitle={docTitle}
+            onClose={() => setOcrOpen(false)}
           />
         </View>
       )}

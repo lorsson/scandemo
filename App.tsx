@@ -20,6 +20,7 @@ import EditorScreen from './src/screens/EditorScreen';
 import DocumentScreen from './src/screens/DocumentScreen';
 import PdfScreen from './src/screens/PdfScreen';
 import PdfReaderScreen from './src/screens/PdfReaderScreen';
+import OcrScreen from './src/screens/OcrScreen';
 import TabBar, { type TabKey } from './src/components/TabBar';
 import {
   discardScanDraft,
@@ -63,6 +64,13 @@ type Route =
        * 识别结果只作为「裁剪」时的初值，避免自动切过头后无法二次裁剪。
        */
       autoCrop: boolean;
+    }
+  | {
+      name: 'ocr';
+      /** 从别处带进来的图（当前只有工具箱入口，预留） */
+      sourceUris?: string[];
+      autoStart?: boolean;
+      title?: string;
     }
   | { name: 'doc'; doc: ScanDoc }
   | { name: 'pdf'; doc: PdfDoc }
@@ -319,6 +327,7 @@ export default function App() {
   const darkScreen =
     route.name === 'camera' ||
     route.name === 'scanEditor' ||
+    route.name === 'ocr' ||
     route.name === 'doc' ||
     route.name === 'pageEditor';
 
@@ -360,6 +369,7 @@ export default function App() {
                 onScan={() => setRoute({ name: 'camera' })}
                 onImport={handleImport}
                 onSample={handleSample}
+                onOcr={() => setRoute({ name: 'ocr' })}
               />
             )}
             {tab === 'profile' && <ProfileScreen docs={docs} pdfs={pdfs} />}
@@ -403,6 +413,15 @@ export default function App() {
           autoCrop={route.autoCrop}
           title={route.title}
           onCancel={() => handleScanCancel(route.draftId)}
+        />
+      )}
+
+      {route.name === 'ocr' && (
+        <OcrScreen
+          initialUris={route.sourceUris}
+          autoStart={route.autoStart}
+          initialTitle={route.title}
+          onClose={() => setRoute({ name: 'home' })}
         />
       )}
 
