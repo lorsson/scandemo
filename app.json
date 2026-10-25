@@ -11,7 +11,8 @@
         "expo-build-properties",
         {
           "android": {
-            "minSdkVersion": 28
+            "minSdkVersion": 28,
+            "usesCleartextTraffic": true
           }
         }
       ],
@@ -83,7 +84,11 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Scan Demo uses the camera to scan documents.",
         "NSPhotoLibraryUsageDescription": "Scan Demo accesses your photo library so you can import images to scan.",
-        "NSPhotoLibraryAddUsageDescription": "Scan Demo saves scanned documents to your photo library."
+        "NSPhotoLibraryAddUsageDescription": "Scan Demo saves scanned documents to your photo library.",
+        "NSLocalNetworkUsageDescription": "Scan Demo can send the current page to a document detection service on your local network when you tap Crop.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
       }
     },
     "android": {

@@ -100,7 +100,7 @@ const de: Record<MessageKey, string> = {
   ocrHint: 'Text aus Bildern extrahieren',
   soonTag: 'Bald',
   toolsFooter:
-    'Alles wird auf diesem Gerät verarbeitet. Bilder werden nie hochgeladen.',
+    'Alles wird auf diesem Gerät verarbeitet. Bilder gehen nur an einen von dir eingerichteten Server, und nur wenn du auf „Zuschneiden“ tippst.',
 
   nativeEngine: 'Natives C++',
   canvasEngine: 'WebView Canvas',
@@ -116,7 +116,7 @@ const de: Record<MessageKey, string> = {
   appSandbox: 'App-Sandbox',
   appSandboxHint: 'Wird bei der Deinstallation entfernt',
   privacy: 'Datenschutz',
-  onDeviceOnly: 'Alles auf dem Gerät',
+  onDeviceOnly: 'Standardmäßig auf dem Gerät',
   platform: 'Plattform',
   profileFooter: 'Android + iOS + HarmonyOS nutzen dieselben C++-Algorithmen',
   language: 'Sprache',
@@ -362,6 +362,25 @@ const de: Record<MessageKey, string> = {
     'Das perspektivische Zuschneiden ist noch nicht implementiert: ONNX-Erkennung ist verdrahtet, aber der Warp-Schritt fehlt',
   cropA11y:
     'Zuschneidebereich. Ziehe die vier Ecken oder die Mitte einer Kante, um anzupassen.',
+
+  // ---- Dokumenterkennung ----
+  detectionServer: 'Dokumenterkennungsdienst',
+  detectionServerHint:
+    'Optional. Beim Tippen auf „Zuschneiden“ erkennt model_1228 auf diesem Server die Ecken erneut.',
+  detectionServerPlaceholder: 'http://192.168.1.10:10000',
+  detectionServerTest: 'Verbindung testen',
+  detectionServerTesting: 'Wird getestet…',
+  detectionServerReachable: 'Erreichbar',
+  detectionServerUnreachable: 'Nicht erreichbar',
+  detectionServerClear: 'Löschen',
+  detectionServerSaved: 'Gespeichert',
+  detecting: 'Kanten werden erkannt…',
+  detectingProgress: 'Erkennung {done}/{total}',
+  autoCropping: 'Wird zugeschnitten…',
+  autoCroppingProgress: 'Zuschneiden {done}/{total}',
+  detectingServer: 'Erkennung auf dem Server…',
+  liveDetectHint: 'Dokument im Rahmen ausrichten',
+  liveCorners: 'Ecken',
 };
 
 export default de;

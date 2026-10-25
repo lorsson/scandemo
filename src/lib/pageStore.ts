@@ -70,6 +70,8 @@ export function sanitizePage(value: unknown): DocPage | null {
     rotation,
     adjust: sanitizeAdjust(raw.adjust),
     cropQuad: sanitizeQuad(raw.cropQuad),
+    // 裁剪前原图：旧版本没有这个字段，缺失时按「没有底图」处理
+    cropBaseUri: typeof raw.cropBaseUri === 'string' ? raw.cropBaseUri : null,
     annotations: Array.isArray(raw.annotations) ? raw.annotations : [],
   };
 }
@@ -188,7 +190,9 @@ export async function importPages(
         rotation: 0,
         adjust: ZERO_ADJUST,
         cropQuad: null,
+        cropBaseUri: null,
         annotations: [],
+        cropped: false,
       });
       options.onProgress?.(i + 1, imageUris.length);
     }
@@ -294,8 +298,9 @@ export async function savePageEdit(
 /**
  * 裁剪完成后把结果升级为新的源图。
  *
- * 裁剪是破坏性操作，和滤镜不同：不能从旧原图重算。因此这里直接写一份新的
- * source 文件，旧原图（包括按它生成的 edited）随页替换一起清理。
+ * 裁剪结果写成一份新的 source 文件，上一版源图（包括按它生成的 edited）
+ * 随页替换一起清理；**裁剪前的原图会留在 cropBaseUri 里**，再次裁剪时以它
+ * 为底图——相机自动切边切多了也能拉回来。
  * 旋转在裁剪时已经烘焙进像素，页面状态重置为 rotation=0；
  * 滤镜 / 微调由调用方基于新源图重新渲染。
  */
@@ -353,6 +358,9 @@ async function replacePageSourceWith(
   const stamp = Date.now();
   const sourceUri = `${dirs.source}${page.id}_crop_${stamp}.jpg`;
   const thumbUri = `${dirs.thumb}${page.id}_${stamp}.jpg`;
+  // 第一次裁剪：当前源图就是「裁剪前的原图」，留作底图；
+  // 之后每次裁剪都沿用最初的底图，不在上一版裁剪结果上继续裁
+  const cropBaseUri = page.cropBaseUri ?? page.originalUri;
   let createdSource = false;
   let createdThumb = false;
 
@@ -366,8 +374,13 @@ async function replacePageSourceWith(
     createdThumb = true;
     await FileSystem.deleteAsync(thumb, { idempotent: true }).catch(() => {});
 
-    // 旧文件只有在项目目录内才删除，避免误删用户相册里的原图
-    if (page.originalUri !== sourceUri && page.originalUri.startsWith(dirs.root)) {
+    // 旧文件只有在项目目录内才删除，避免误删用户相册里的原图；
+    // 裁剪前的底图要保留，再次裁剪还得用它
+    if (
+      page.originalUri !== sourceUri &&
+      page.originalUri !== cropBaseUri &&
+      page.originalUri.startsWith(dirs.root)
+    ) {
       await FileSystem.deleteAsync(page.originalUri, { idempotent: true }).catch(
         () => {},
       );
@@ -394,6 +407,9 @@ async function replacePageSourceWith(
       rotation: 0,
       adjust: ZERO_ADJUST,
       cropQuad: null,
+      // 裁剪前的原图：再次裁剪时以它为底图，不会在已裁结果上继续往里缩
+      cropBaseUri,
+      cropped: true,
     };
   } catch (error) {
     if (createdSource) {
@@ -407,7 +423,13 @@ async function replacePageSourceWith(
 }
 
 export async function deletePageFiles(page: DocPage): Promise<void> {
-  const uris = new Set([page.originalUri, page.uri, page.thumbUri]);
+  const uris = new Set([
+    page.originalUri,
+    page.uri,
+    page.thumbUri,
+    page.cropBaseUri ?? '',
+  ]);
+  uris.delete('');
   await Promise.all(
     [...uris].map((uri) =>
       FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {}),

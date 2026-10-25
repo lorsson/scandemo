@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.pdf.PdfDocument
 import android.os.SystemClock
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
@@ -84,6 +85,23 @@ class ImageCoreModule : Module() {
     Name("ImageCore")
 
     Function("version") { nativeVersion() }
+
+    // 按 EXIF 转正后的像素尺寸（与 RN Image 实际显示的方向一致）。
+    // JS 的 Image.getSize 给的是文件里的原始宽高，竖拍照片会差 90°。
+    AsyncFunction("imageSize") { path: String ->
+      val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+      BitmapFactory.decodeFile(path, bounds)
+      val rawWidth = bounds.outWidth
+      val rawHeight = bounds.outHeight
+      require(rawWidth > 0 && rawHeight > 0) { "无法读取图片尺寸: $path" }
+      val swap = DocCornerDetector.swapsDimensions(
+        DocCornerDetector.readExifOrientation(path)
+      )
+      mapOf(
+        "width" to if (swap) rawHeight else rawWidth,
+        "height" to if (swap) rawWidth else rawHeight,
+      )
+    }
 
     AsyncFunction("processFile") {
       inputPath: String,
@@ -263,6 +281,33 @@ class ImageCoreModule : Module() {
       pageHeight: Int ->
       createPdf(inputPaths, outputPath, pageWidth, pageHeight)
     }
+
+    // 端侧文档四角检测（DocCornerNet）：path 不带 file://
+    AsyncFunction("detectFile") { path: String ->
+      val reactContext = appContext.reactContext
+        ?: throw IllegalStateException("React context 不可用")
+      DocCornerDetector.detectFile(reactContext, path)?.let { detected ->
+        mapOf(
+          "quad" to detected.toQuadMap(),
+          "confidence" to detected.confidence
+        )
+      }
+    }
+
+    // JS 侧需要同步判断能否渲染原生取景组件（启动时就要决定）
+    Function("isCameraAvailable") { true }
+
+    // 实时相机取景：CameraX 预览 + 帧分析 + 拍照，全部在原生侧完成
+    View(ImageCoreCameraView::class) {
+      Events("onQuad", "onError")
+      // 视野内的 AsyncFunction 会被强制放到 MAIN 线程，拍照必须走 promise，不能同步等待
+      AsyncFunction("takePicture") { view: ImageCoreCameraView, promise: Promise ->
+        view.takePicture(promise)
+      }
+      OnViewDestroys { view ->
+        view.destroy()
+      }
+    }
   }
 
   private fun createPdf(
@@ -327,8 +372,12 @@ class ImageCoreModule : Module() {
       inSampleSize = sampleSize
       inPreferredConfig = Bitmap.Config.ARGB_8888
     }
-    return BitmapFactory.decodeFile(path, options)
+    val decoded = BitmapFactory.decodeFile(path, options)
       ?: throw IllegalArgumentException("无法解码图片: $path")
+    // 老记录里的源图可能还带 EXIF 方向
+    val upright = DocCornerDetector.applyExifOrientation(path, decoded)
+    if (upright !== decoded) decoded.recycle()
+    return upright
   }
 
   private fun processFile(
@@ -342,13 +391,8 @@ class ImageCoreModule : Module() {
   ): Map<String, Any> {
     val startedAt = SystemClock.elapsedRealtime()
 
-    val options = BitmapFactory.Options().apply {
-      inPreferredConfig = Bitmap.Config.ARGB_8888
-      // 原地修改像素，省掉第二张 Bitmap 的内存
-      inMutable = true
-    }
-    val bitmap = BitmapFactory.decodeFile(inputPath, options)
-      ?: throw IllegalArgumentException("无法解码图片: $inputPath")
+    // 和裁剪/缩放共用解码：同样把 EXIF 方向烘进像素
+    val bitmap = decodeBitmap(inputPath)
 
     val width = bitmap.width
     val height = bitmap.height
@@ -397,14 +441,26 @@ class ImageCoreModule : Module() {
     }
   }
 
-  private fun decodeBitmap(path: String): Bitmap =
-    BitmapFactory.decodeFile(
+  /**
+   * 解码成 ARGB 位图，并把 EXIF 方向烘进像素。
+   *
+   * 渲染端（RN Image）会按 EXIF 把照片摆正，像素运算必须用同一套方向：
+   * 否则 8/1 号方向照片的裁剪框、缩放、滤镜全部会偏 90°。
+   * 输出 JPEG 不带 EXIF，所以这里转正后不会再被转一次。
+   */
+  private fun decodeBitmap(path: String): Bitmap {
+    val decoded = BitmapFactory.decodeFile(
       path,
       BitmapFactory.Options().apply {
         inPreferredConfig = Bitmap.Config.ARGB_8888
         inMutable = true
       }
     ) ?: throw IllegalArgumentException("无法解码图片: $path")
+
+    val upright = DocCornerDetector.applyExifOrientation(path, decoded)
+    if (upright !== decoded) decoded.recycle()
+    return upright
+  }
 
   /** 写 JPEG，返回耗时；调用方负责 recycle */
   private fun writeJpeg(bitmap: Bitmap, outputPath: String, quality: Int): Long {

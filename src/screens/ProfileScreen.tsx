@@ -1,9 +1,23 @@
-import type { ComponentProps } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState, type ComponentProps } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import appConfig from '../../app.json';
+import {
+  getDetectionServerUrl,
+  normalizeServerUrl,
+  setDetectionServerUrl,
+} from '../lib/detectionConfig';
+import { testDetectionServer } from '../lib/detectionServer';
 import {
   isNativeFilterAvailable,
   nativeCoreVersion,
@@ -28,6 +42,57 @@ export default function ProfileScreen({ docs, pdfs }: Props) {
   const pageCount =
     pdfs.reduce((sum, pdf) => sum + pdf.pageCount, 0) +
     docs.reduce((sum, doc) => sum + doc.pages.length, 0);
+  /** 文档识别服务（model_1228）：默认空表示只用端侧模型 */
+  const [serverDraft, setServerDraft] = useState('');
+  const [serverStatus, setServerStatus] = useState<
+    'idle' | 'testing' | 'reachable' | 'unreachable'
+  >('idle');
+  const [serverSaved, setServerSaved] = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getDetectionServerUrl().then((url) => {
+      if (!cancelled) setServerDraft(url);
+    });
+    return () => {
+      cancelled = true;
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+    };
+  }, []);
+
+  const flashSaved = () => {
+    setServerSaved(true);
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setServerSaved(false), 2000);
+  };
+
+  const handleSaveServer = async () => {
+    const normalized = normalizeServerUrl(serverDraft);
+    await setDetectionServerUrl(normalized);
+    setServerDraft(normalized);
+    setServerStatus('idle');
+    flashSaved();
+  };
+
+  const handleClearServer = async () => {
+    await setDetectionServerUrl('');
+    setServerDraft('');
+    setServerStatus('idle');
+    setServerSaved(false);
+  };
+
+  const handleTestServer = async () => {
+    const normalized = normalizeServerUrl(serverDraft);
+    if (!normalized) {
+      setServerStatus('unreachable');
+      return;
+    }
+    setServerStatus('testing');
+    const ok = await testDetectionServer(normalized);
+    setServerStatus(ok ? 'reachable' : 'unreachable');
+  };
+
   const languageOptions: { value: LocalePreference; label: string }[] = [
     { value: 'system', label: t('languageSystem') },
     { value: 'zh', label: t('languageChinese') },
@@ -98,6 +163,101 @@ export default function ProfileScreen({ docs, pdfs }: Props) {
           <InfoRow icon="shield-checkmark-outline" title={t('privacy')} value={t('onDeviceOnly')} />
           <View style={styles.separator} />
           <InfoRow icon="phone-portrait-outline" title={t('platform')} value="Android · iOS" />
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.serverHeader}>
+            <View style={styles.rowIcon}>
+              <Ionicons
+                name="scan-outline"
+                size={19}
+                color={theme.subtext}
+              />
+            </View>
+            <View style={styles.rowMeta}>
+              <Text style={styles.rowTitle}>{t('detectionServer')}</Text>
+              <Text style={styles.rowHint}>{t('detectionServerHint')}</Text>
+            </View>
+          </View>
+
+          <TextInput
+            value={serverDraft}
+            onChangeText={(text) => {
+              setServerDraft(text);
+              setServerSaved(false);
+              setServerStatus('idle');
+            }}
+            placeholder={t('detectionServerPlaceholder')}
+            placeholderTextColor={theme.subtext}
+            style={styles.serverInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            accessibilityLabel={t('detectionServer')}
+          />
+
+          <View style={styles.serverActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void handleSaveServer()}
+              style={({ pressed }) => [
+                styles.serverBtn,
+                styles.serverBtnPrimary,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.serverBtnPrimaryText}>
+                {serverSaved ? t('detectionServerSaved') : t('save')}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void handleTestServer()}
+              disabled={serverStatus === 'testing'}
+              style={({ pressed }) => [
+                styles.serverBtn,
+                pressed && styles.pressed,
+              ]}
+            >
+              {serverStatus === 'testing' ? (
+                <ActivityIndicator size="small" color={theme.subtext} />
+              ) : (
+                <Text style={styles.serverBtnText}>
+                  {t('detectionServerTest')}
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void handleClearServer()}
+              style={({ pressed }) => [
+                styles.serverBtn,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.serverBtnText}>
+                {t('detectionServerClear')}
+              </Text>
+            </Pressable>
+          </View>
+
+          {serverStatus !== 'idle' && (
+            <Text
+              style={[
+                styles.serverStatus,
+                serverStatus === 'reachable' && { color: theme.success },
+                serverStatus === 'unreachable' && { color: theme.danger },
+              ]}
+            >
+              {serverStatus === 'testing'
+                ? t('detectionServerTesting')
+                : serverStatus === 'reachable'
+                  ? t('detectionServerReachable')
+                  : t('detectionServerUnreachable')}
+            </Text>
+          )}
         </View>
 
         <View style={styles.card}>
@@ -234,6 +394,51 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 14, fontWeight: '600', color: theme.text },
   rowHint: { fontSize: 11, color: theme.subtext, marginTop: 2 },
   rowValue: { fontSize: 13, color: theme.subtext, maxWidth: '45%', textAlign: 'right' },
+  serverHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingTop: 14,
+  },
+  serverInput: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 10,
+    backgroundColor: theme.surfaceAlt,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: theme.text,
+  },
+  serverActions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 10,
+  },
+  serverBtn: {
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surfaceAlt,
+  },
+  serverBtnPrimary: {
+    borderColor: theme.primary,
+    backgroundColor: theme.primary,
+  },
+  serverBtnText: { fontSize: 12, fontWeight: '600', color: theme.text },
+  serverBtnPrimaryText: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  serverStatus: {
+    fontSize: 11,
+    color: theme.subtext,
+    paddingVertical: 10,
+  },
+  pressed: { opacity: 0.7 },
   langHeader: {
     flexDirection: 'row',
     alignItems: 'baseline',

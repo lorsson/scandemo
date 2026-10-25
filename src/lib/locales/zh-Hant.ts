@@ -102,7 +102,8 @@ const zhHant: Record<MessageKey, string> = {
   ocr: '文字辨識',
   ocrHint: '提取圖片中的文字',
   soonTag: '即將推出',
-  toolsFooter: '所有處理都在本機完成，圖片不會上傳。',
+  toolsFooter:
+    '所有處理都在本機完成；只有設定了辨識服務並點「裁切」時，目前圖片才會傳給該服務。',
 
   // ---- 我的 ----
   nativeEngine: '原生 C++',
@@ -119,7 +120,7 @@ const zhHant: Record<MessageKey, string> = {
   appSandbox: 'App 沙盒',
   appSandboxHint: '解除安裝 App 時一併刪除',
   privacy: '隱私',
-  onDeviceOnly: '全部本機處理',
+  onDeviceOnly: '預設全部本機處理',
   platform: '平台',
   profileFooter: 'Android + iOS + HarmonyOS 共用同一份 C++ 演算法',
   language: '語言',
@@ -362,6 +363,25 @@ const zhHant: Record<MessageKey, string> = {
   errorPerspectiveNotImplemented:
     '透視裁切尚未實作：ONNX 偵測已接入，但缺少 warp 步驟',
   cropA11y: '裁切區域，拖動四個角點或四邊中點調整',
+
+  // ---- 文件辨識 ----
+  detectionServer: '文件辨識服務',
+  detectionServerHint:
+    '選填。點「裁切」時，會用此服務上的 model_1228 重新辨識四角。',
+  detectionServerPlaceholder: 'http://192.168.1.10:10000',
+  detectionServerTest: '測試連線',
+  detectionServerTesting: '測試中…',
+  detectionServerReachable: '連線正常',
+  detectionServerUnreachable: '無法連線',
+  detectionServerClear: '清除',
+  detectionServerSaved: '已儲存',
+  detecting: '正在辨識邊緣…',
+  detectingProgress: '正在辨識 {done}/{total}',
+  autoCropping: '正在切邊…',
+  autoCroppingProgress: '正在切邊 {done}/{total}',
+  detectingServer: '伺服器辨識中…',
+  liveDetectHint: '將文件置於取景框內',
+  liveCorners: '四角',
 };
 
 export default zhHant;

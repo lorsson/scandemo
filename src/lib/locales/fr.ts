@@ -100,7 +100,7 @@ const fr: Record<MessageKey, string> = {
   ocrHint: 'Extraire le texte des images',
   soonTag: 'Bientôt',
   toolsFooter:
-    'Tout est traité sur cet appareil. Les images ne sont jamais envoyées.',
+    'Tout est traité sur cet appareil. Les images ne sont envoyées qu’au serveur que vous configurez, et uniquement quand vous touchez « Recadrer ».',
 
   nativeEngine: 'C++ natif',
   canvasEngine: 'WebView Canvas',
@@ -116,7 +116,7 @@ const fr: Record<MessageKey, string> = {
   appSandbox: 'Sandbox de l’application',
   appSandboxHint: 'Supprimé à la désinstallation de l’application',
   privacy: 'Confidentialité',
-  onDeviceOnly: 'Tout sur l’appareil',
+  onDeviceOnly: 'Sur l’appareil par défaut',
   platform: 'Plateforme',
   profileFooter: 'Android + iOS + HarmonyOS partagent les mêmes algorithmes C++',
   language: 'Langue',
@@ -362,6 +362,25 @@ const fr: Record<MessageKey, string> = {
     'Le rognage en perspective n’est pas encore implémenté : la détection ONNX est branchée mais l’étape de déformation manque',
   cropA11y:
     'Zone de rognage. Faites glisser les quatre coins ou le milieu d’un bord pour régler.',
+
+  // ---- Détection de documents ----
+  detectionServer: 'Service de détection de documents',
+  detectionServerHint:
+    'Facultatif. Quand vous touchez « Recadrer », model_1228 redétecte les coins sur ce serveur.',
+  detectionServerPlaceholder: 'http://192.168.1.10:10000',
+  detectionServerTest: 'Tester la connexion',
+  detectionServerTesting: 'Test en cours…',
+  detectionServerReachable: 'Accessible',
+  detectionServerUnreachable: 'Inaccessible',
+  detectionServerClear: 'Effacer',
+  detectionServerSaved: 'Enregistré',
+  detecting: 'Détection des bords…',
+  detectingProgress: 'Détection {done}/{total}',
+  autoCropping: 'Recadrage…',
+  autoCroppingProgress: 'Recadrage {done}/{total}',
+  detectingServer: 'Détection sur le serveur…',
+  liveDetectHint: 'Alignez le document dans le cadre',
+  liveCorners: 'Coins',
 };
 
 export default fr;

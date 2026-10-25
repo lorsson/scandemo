@@ -30,6 +30,7 @@ import {
 import { resolveBundledAsset } from './src/lib/imagePipeline';
 import { titleFromUri } from './src/lib/format';
 import { initI18n, t } from './src/lib/i18n';
+import { registerNativeDocumentDetector } from './src/lib/nativeDocumentDetector';
 import { FilterEngineHost } from './src/lib/filterEngine';
 import { getPdfLimits, initPdfLimits } from './src/lib/pdfLimits';
 import {
@@ -56,6 +57,12 @@ type Route =
       draftId: string;
       sourceUris: string[];
       title: string;
+      /**
+       * 首次进编辑器时是否自动切边。
+       * 相机拍照为 true；相册导入/示例文档为 false——保留原始图，
+       * 识别结果只作为「裁剪」时的初值，避免自动切过头后无法二次裁剪。
+       */
+      autoCrop: boolean;
     }
   | { name: 'doc'; doc: ScanDoc }
   | { name: 'pdf'; doc: PdfDoc }
@@ -67,6 +74,10 @@ type Route =
       /** 编辑保存/取消后回到哪里：排版页还是阅读器 */
       backTo?: 'pdf' | 'pdfReader';
     };
+
+// 启动即注册端侧检测器（Android DocCornerNet / iOS Vision）；Expo Go 里没有原生
+// 实现，isAvailable() 为 false，调用方会跳过自动切边，不影响其他流程。
+registerNativeDocumentDetector();
 
 /** 页面改动时间至少晚于上一次生成 1ms，保证 dirty 判定成立 */
 function nextUpdatedAt(generatedAt: number | null): number {
@@ -145,13 +156,18 @@ export default function App() {
    * 打开扫描编辑器：批量图片 → 多页预览/调整 → 导出图片 / PDF。
    * 标题默认取第一张图片的文件名，编辑器里还能改。
    */
-  const goScanEditor = (sourceUris: string[], name?: string) => {
+  const goScanEditor = (
+    sourceUris: string[],
+    name?: string,
+    autoCrop = false,
+  ) => {
     if (sourceUris.length === 0) return;
     setRoute({
       name: 'scanEditor',
       draftId: `${Date.now()}`,
       sourceUris,
       title: titleFromUri(name || sourceUris[0]),
+      autoCrop,
     });
   };
 
@@ -358,7 +374,7 @@ export default function App() {
 
       {route.name === 'camera' && (
         <CameraScreen
-          onCaptured={(uri) => goScanEditor([uri])}
+          onCaptured={(uri) => goScanEditor([uri], undefined, true)}
           onCancel={() => setRoute({ name: 'home' })}
           onPickGallery={() =>
             setRoute({ name: 'picker', title: t('importImages'), returnTo: 'camera' })
@@ -384,6 +400,7 @@ export default function App() {
           key={route.draftId}
           draftId={route.draftId}
           initialUris={route.sourceUris}
+          autoCrop={route.autoCrop}
           title={route.title}
           onCancel={() => handleScanCancel(route.draftId)}
         />

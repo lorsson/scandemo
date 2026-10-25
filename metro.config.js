@@ -1,22 +1,21 @@
-// Learn more: https://docs.expo.dev/guides/customizing-metro/
-const path = require('path');
+// Metro 配置：react-native-safe-area-context 的实体可以放在盘外目录，
+// node_modules 里用 junction 指过去（规避 Windows MAX_PATH 260 长度坑）。
+// Metro 默认不 watch 工程根目录之外的文件，需要用 watchFolders 把它接进来；
+// 没有 junction 的机器上保持默认配置即可。
 const fs = require('fs');
+const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
 
-// Windows MAX_PATH workaround: this machine keeps react-native-safe-area-context
-// behind a junction at D:\n\sacontext so the CMake object paths stay under 260
-// characters. Metro resolves the junction to its real path, which is outside the
-// project root, so it has to be watched explicitly. Ignored on machines without
-// the junction.
-const shortModuleDir = 'D:\\n\\sacontext';
+// junction 指到盘外的实际包目录
+const shortModuleDir = 'D:/n/sacontext';
 if (fs.existsSync(shortModuleDir)) {
   config.watchFolders = [...(config.watchFolders ?? []), shortModuleDir];
-  // Files under the junction resolve imports from there, so keep the project's
-  // node_modules on the resolver's search path.
+  // 从 junction 里解析的 import 也要能找到工程自己的 node_modules
   config.resolver.nodeModulesPaths = [
     path.resolve(__dirname, 'node_modules'),
+    path.dirname(shortModuleDir),
     ...(config.resolver.nodeModulesPaths ?? []),
   ];
 }

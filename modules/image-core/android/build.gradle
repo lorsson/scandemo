@@ -18,6 +18,9 @@ android {
     versionCode 1
     versionName "0.1.0"
 
+    // ONNX Runtime 的 JNI 反射查找依赖类名，release 包必须保留
+    consumerProguardFiles "consumer-rules.pro"
+
     externalNativeBuild {
       cmake {
         arguments "-DANDROID_STL=c++_shared"
@@ -37,4 +40,19 @@ android {
   buildFeatures {
     prefab false
   }
+}
+
+dependencies {
+  // 端侧文档四角检测（DocCornerNet）。用 Java API，避免在 prefab=false 的
+  // CMake 工程里接 C++ headers/libs；模型从 assets 读字节建 session。
+  implementation "com.microsoft.onnxruntime:onnxruntime-android:1.20.0"
+
+  // 实时取景：版本与 expo-camera 保持一致，避免 CameraX 冲突。
+  // 见 node_modules/expo-camera/android/build.gradle:31-42
+  def camerax_version = "1.6.0"
+  implementation "androidx.camera:camera-core:$camerax_version"
+  implementation "androidx.camera:camera-camera2:$camerax_version"
+  implementation "androidx.camera:camera-lifecycle:$camerax_version"
+  implementation "androidx.camera:camera-view:$camerax_version"
+  implementation "androidx.exifinterface:exifinterface:1.4.2"
 }

@@ -4,7 +4,9 @@ import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import {
+  imageSizeWithNative,
   isNativeGeometryAvailable,
+  isNativeImageSizeAvailable,
   resizeFileWithNative,
   rotateFileWithNative,
   warpFileWithNative,
@@ -52,7 +54,22 @@ export async function resolveBundledAsset(moduleId: number): Promise<string> {
   return asset.localUri ?? asset.uri;
 }
 
-export function getImageSize(uri: string): Promise<{ width: number; height: number }> {
+/**
+ * 图片显示尺寸。
+ *
+ * 优先走原生（按 EXIF 转正）：`Image.getSize` 返回的是文件里的原始宽高，
+ * 竖拍照片会横过来，裁剪框就会和画面错位。原生不可用时才退回 RN。
+ */
+export async function getImageSize(
+  uri: string,
+): Promise<{ width: number; height: number }> {
+  if (isNativeImageSizeAvailable()) {
+    try {
+      return await imageSizeWithNative(toFilePath(uri));
+    } catch (error) {
+      console.warn('[image-core] native imageSize failed, falling back:', error);
+    }
+  }
   return new Promise((resolve, reject) => {
     Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
   });

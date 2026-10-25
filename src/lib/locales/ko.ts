@@ -100,7 +100,7 @@ const ko: Record<MessageKey, string> = {
   ocrHint: '이미지에서 텍스트 추출',
   soonTag: '업데이트 예정',
   toolsFooter:
-    '모든 처리는 이 기기에서 이루어집니다. 이미지는 업로드되지 않습니다.',
+    '모든 처리는 이 기기에서 이루어집니다. 이미지는 설정한 감지 서버로, 자르기를 누를 때만 전송됩니다.',
 
   nativeEngine: '네이티브 C++',
   canvasEngine: 'WebView Canvas',
@@ -116,7 +116,7 @@ const ko: Record<MessageKey, string> = {
   appSandbox: '앱 샌드박스',
   appSandboxHint: '앱을 제거하면 함께 삭제됩니다',
   privacy: '개인정보',
-  onDeviceOnly: '모두 기기 내 처리',
+  onDeviceOnly: '기본은 기기 내 처리',
   platform: '플랫폼',
   profileFooter: 'Android + iOS + HarmonyOS가 동일한 C++ 알고리즘을 공유합니다',
   language: '언어',
@@ -362,6 +362,25 @@ const ko: Record<MessageKey, string> = {
     '원근 자르기는 아직 구현되지 않았습니다. ONNX 감지는 연결되어 있지만 warp 단계가 없습니다',
   cropA11y:
     '자르기 영역. 네 모서리나 변의 중앙을 드래그하여 조정합니다.',
+
+  // ---- 문서 감지 ----
+  detectionServer: '문서 감지 서비스',
+  detectionServerHint:
+    '선택 사항. 자르기를 누르면 이 서버의 model_1228로 네 모서리를 다시 감지합니다.',
+  detectionServerPlaceholder: 'http://192.168.1.10:10000',
+  detectionServerTest: '연결 테스트',
+  detectionServerTesting: '테스트 중…',
+  detectionServerReachable: '연결됨',
+  detectionServerUnreachable: '연결할 수 없음',
+  detectionServerClear: '지우기',
+  detectionServerSaved: '저장됨',
+  detecting: '가장자리 감지 중…',
+  detectingProgress: '감지 중 {done}/{total}',
+  autoCropping: '자르는 중…',
+  autoCroppingProgress: '자르는 중 {done}/{total}',
+  detectingServer: '서버에서 감지 중…',
+  liveDetectHint: '문서를 프레임 안에 맞추세요',
+  liveCorners: '모서리',
 };
 
 export default ko;

@@ -105,7 +105,7 @@ const pt: Record<MessageKey, string> = {
   ocrHint: 'Extrai texto das imagens',
   soonTag: 'Em breve',
   toolsFooter:
-    'Tudo é processado neste dispositivo. As imagens nunca são enviadas.',
+    'Tudo é processado neste dispositivo. As imagens só são enviadas ao servidor que você configurar e apenas ao tocar em Recortar.',
 
   // ---- 我的 ----
   nativeEngine: 'C++ nativo',
@@ -122,7 +122,7 @@ const pt: Record<MessageKey, string> = {
   appSandbox: 'Sandbox do app',
   appSandboxHint: 'Removido quando o app é desinstalado',
   privacy: 'Privacidade',
-  onDeviceOnly: 'Tudo no dispositivo',
+  onDeviceOnly: 'No dispositivo por padrão',
   platform: 'Plataforma',
   profileFooter: 'Android + iOS + HarmonyOS compartilham os mesmos algoritmos C++',
   language: 'Idioma',
@@ -377,6 +377,25 @@ const pt: Record<MessageKey, string> = {
     'O corte de perspectiva ainda não está implementado: a detecção ONNX está conectada, mas falta a etapa de warp',
   cropA11y:
     'Área de corte. Arraste os quatro cantos ou o meio de uma borda para ajustar.',
+
+  // ---- Detecção de documentos ----
+  detectionServer: 'Serviço de detecção de documentos',
+  detectionServerHint:
+    'Opcional. Ao tocar em Recortar, o model_1228 detecta os cantos novamente neste servidor.',
+  detectionServerPlaceholder: 'http://192.168.1.10:10000',
+  detectionServerTest: 'Testar conexão',
+  detectionServerTesting: 'Testando…',
+  detectionServerReachable: 'Acessível',
+  detectionServerUnreachable: 'Inacessível',
+  detectionServerClear: 'Limpar',
+  detectionServerSaved: 'Salvo',
+  detecting: 'Detectando bordas…',
+  detectingProgress: 'Detectando {done}/{total}',
+  autoCropping: 'Recortando…',
+  autoCroppingProgress: 'Recortando {done}/{total}',
+  detectingServer: 'Detectando no servidor…',
+  liveDetectHint: 'Alinhe o documento dentro da moldura',
+  liveCorners: 'Cantos',
 };
 
 export default pt;

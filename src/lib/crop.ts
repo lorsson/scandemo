@@ -98,3 +98,103 @@ export function quadArea(quad: DocumentQuad): number {
 
 /** 显示用的最小裁剪面积；再小就当作误触 */
 export const MIN_QUAD_AREA = 0.02;
+
+/**
+ * 自动切边的阈值：太小可能是误检，接近整图说明模型退回了边框，
+ * 两种情况都不自动裁，保留原图让用户手动处理。
+ */
+export const AUTO_QUAD_MIN_AREA = 0.04;
+export const AUTO_QUAD_MAX_AREA = 0.995;
+
+/**
+ * 四个点按 左上→右上→右下→左下 的顺序是否围成凸四边形。
+ * 与 CropOverlay 共用（拖拽时也用同一套判定，避免两处标准不一致）。
+ */
+export function isQuadConvex(quad: DocumentQuad): boolean {
+  const points = [
+    quad.topLeft,
+    quad.topRight,
+    quad.bottomRight,
+    quad.bottomLeft,
+  ];
+  let sign = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    const c = points[(i + 2) % points.length];
+    const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+    if (Math.abs(cross) < 1e-6) return false;
+    const current = cross > 0 ? 1 : -1;
+    if (sign === 0) sign = current;
+    else if (current !== sign) return false;
+  }
+  return true;
+}
+
+/**
+ * 自动切边是否值得执行：凸、面积在合理区间、且不是整图。
+ * 服务端/端侧结果都经过这一层，避免模型退化的结果破坏原图。
+ */
+export function isUsableQuad(
+  quad: DocumentQuad,
+  minArea = AUTO_QUAD_MIN_AREA,
+  maxArea = AUTO_QUAD_MAX_AREA,
+): boolean {
+  if (!isQuadConvex(quad)) return false;
+  const area = quadArea(quad);
+  return area >= minArea && area <= maxArea;
+}
+
+/**
+ * 把任意顺序的 4 个点整理成 TL,TR,BR,BL。
+ * 用「x+y 最小=左上、最大=右下；x-y 最大=右上、最小=左下」，
+ * 对常见的近似轴对齐文档足够稳，且不依赖服务端返回顺序。
+ */
+export function orderQuadPoints(
+  points: readonly NormalizedPoint[],
+): DocumentQuad | null {
+  if (points.length !== 4) return null;
+  if (
+    points.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))
+  ) {
+    return null;
+  }
+
+  let topLeft = 0;
+  let bottomRight = 0;
+  let topRight = 0;
+  let bottomLeft = 0;
+  for (let i = 1; i < 4; i += 1) {
+    const sum = points[i].x + points[i].y;
+    const diff = points[i].x - points[i].y;
+    if (sum < points[topLeft].x + points[topLeft].y) topLeft = i;
+    if (sum > points[bottomRight].x + points[bottomRight].y) bottomRight = i;
+    if (diff > points[topRight].x - points[topRight].y) topRight = i;
+    if (diff < points[bottomLeft].x - points[bottomLeft].y) bottomLeft = i;
+  }
+
+  if (new Set([topLeft, topRight, bottomRight, bottomLeft]).size !== 4) {
+    return null;
+  }
+
+  return {
+    topLeft: { ...points[topLeft] },
+    topRight: { ...points[topRight] },
+    bottomRight: { ...points[bottomRight] },
+    bottomLeft: { ...points[bottomLeft] },
+  };
+}
+
+/** 服务端像素坐标 → 归一化四角（width/height 是上传图片的尺寸） */
+export function quadFromPoints(
+  points: readonly { x: number; y: number }[],
+  width: number,
+  height: number,
+): DocumentQuad | null {
+  if (!(width > 0) || !(height > 0)) return null;
+  const normalized = points.map((p) => ({
+    x: Math.min(1, Math.max(0, p.x / width)),
+    y: Math.min(1, Math.max(0, p.y / height)),
+  }));
+  return orderQuadPoints(normalized);
+}

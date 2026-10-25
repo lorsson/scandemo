@@ -145,7 +145,7 @@ const en = {
   ocrHint: 'Extract text from images',
   soonTag: 'Soon',
   toolsFooter:
-    'Everything is processed on this device. Images are never uploaded.',
+    'Everything is processed on this device. Images are only sent to a server you configure, and only when you tap Crop.',
 
   // ---- 我的 ----
   nativeEngine: 'Native C++',
@@ -162,7 +162,7 @@ const en = {
   appSandbox: 'App sandbox',
   appSandboxHint: 'Removed when the app is uninstalled',
   privacy: 'Privacy',
-  onDeviceOnly: 'All on-device',
+  onDeviceOnly: 'On-device by default',
   platform: 'Platform',
   profileFooter: 'Android + iOS + HarmonyOS share the same C++ algorithms',
   language: 'Language',
@@ -417,6 +417,25 @@ const en = {
     'Perspective crop isn’t implemented yet: ONNX detection is wired up but the warp step is missing',
   cropA11y:
     'Crop area. Drag the four corners or the middle of an edge to adjust.',
+
+  // ---- 文档检测 ----
+  detectionServer: 'Document detection service',
+  detectionServerHint:
+    'Optional. When you tap Crop, model_1228 on this server re-detects the corners.',
+  detectionServerPlaceholder: 'http://192.168.1.10:10000',
+  detectionServerTest: 'Test connection',
+  detectionServerTesting: 'Testing…',
+  detectionServerReachable: 'Reachable',
+  detectionServerUnreachable: 'Unreachable',
+  detectionServerClear: 'Clear',
+  detectionServerSaved: 'Saved',
+  detecting: 'Detecting edges…',
+  detectingProgress: 'Detecting {done}/{total}',
+  autoCropping: 'Cropping…',
+  autoCroppingProgress: 'Cropping {done}/{total}',
+  detectingServer: 'Detecting on server…',
+  liveDetectHint: 'Align the document inside the frame',
+  liveCorners: 'Corners',
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -524,7 +543,8 @@ const zh: Record<MessageKey, string> = {
   ocr: '文字识别',
   ocrHint: '提取图片里的文字',
   soonTag: '敬请期待',
-  toolsFooter: '所有处理都在本机完成，图片不会上传到服务器。',
+  toolsFooter:
+    '所有处理都在本机完成；只有配置了识别服务并点「裁剪」时，当前图片才会发给该服务。',
 
   nativeEngine: '原生 C++',
   canvasEngine: 'WebView Canvas',
@@ -540,7 +560,7 @@ const zh: Record<MessageKey, string> = {
   appSandbox: '应用沙盒',
   appSandboxHint: '卸载 App 会一并删除',
   privacy: '隐私',
-  onDeviceOnly: '全部本机处理',
+  onDeviceOnly: '默认全部本机处理',
   platform: '平台',
   profileFooter: 'Android + iOS + HarmonyOS 共用同一份 C++ 算法',
   language: '语言',
@@ -774,6 +794,25 @@ const zh: Record<MessageKey, string> = {
   errorPerspectiveNotImplemented:
     '透视切边尚未实现：ONNX 检测已接入，但缺少 warp 步骤',
   cropA11y: '裁剪区域，拖动四个角点或四条边的中点调整',
+
+  // ---- 文档检测 ----
+  detectionServer: '文档识别服务',
+  detectionServerHint:
+    '可选。点「裁剪」时用该服务上的 model_1228 重新识别四角。',
+  detectionServerPlaceholder: 'http://192.168.1.10:10000',
+  detectionServerTest: '测试连接',
+  detectionServerTesting: '测试中…',
+  detectionServerReachable: '连接正常',
+  detectionServerUnreachable: '无法连接',
+  detectionServerClear: '清除',
+  detectionServerSaved: '已保存',
+  detecting: '正在识别边缘…',
+  detectingProgress: '正在识别 {done}/{total}',
+  autoCropping: '正在切边…',
+  autoCroppingProgress: '正在切边 {done}/{total}',
+  detectingServer: '服务端识别中…',
+  liveDetectHint: '把文档放进取景框',
+  liveCorners: '四角',
 };
 
 const dictionaries: Record<Locale, Record<MessageKey, string>> = {

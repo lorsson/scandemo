@@ -285,6 +285,46 @@
     .exportBtn.primary { background: var(--primary); color: #fff; }
     .coreLine { margin-top: 7px; text-align: center; font-size: 10px; color: #5f6779; }
 
+    /* ---------------- 文档识别服务 ---------------- */
+    .serverPanel {
+      display: none;
+      gap: 6px;
+      align-items: center;
+      margin-top: 8px;
+    }
+    .serverPanel.open { display: flex; }
+    .serverInput {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 32px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: #1c2130;
+      color: var(--text);
+      font-size: 12px;
+      outline: none;
+    }
+    .serverBtn {
+      flex: 0 0 auto;
+      height: 32px;
+      padding: 0 10px;
+      border-radius: 8px;
+      background: #232838;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .serverBtn.primary { background: var(--primary); color: #fff; }
+    .serverState {
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--faint);
+      text-align: center;
+    }
+    .serverState.ok { color: #5fd18a; }
+    .serverState.bad { color: #ff8f88; }
+
     /* 裁剪底栏 */
     #cropBar { display: none; }
     .cropHint { margin: 2px 0 8px; text-align: center; font-size: 13px; color: #c9ced8; }
@@ -305,6 +345,8 @@
     body.cropping .sectionHeader,
     body.cropping .toolRow,
     body.cropping .exportRow,
+    body.cropping .serverPanel,
+    body.cropping .serverState,
     body.cropping .coreLine { display: none !important; }
     body.cropping #cropBar { display: block; }
 
@@ -464,12 +506,22 @@
         <button class="tool" data-tool="right"><span class="glyph">↻</span><span>右转</span></button>
         <button class="tool" data-tool="crop"><span class="glyph">⌗</span><span>裁剪</span></button>
         <button class="tool" data-tool="ocr"><span class="glyph">T</span><span>提取文字</span></button>
+        <button class="tool" data-tool="server"><span class="glyph">◎</span><span>识别服务</span></button>
       </div>
 
       <div class="exportRow">
         <button class="exportBtn" id="btnSaveImages">保存所有图片</button>
         <button class="exportBtn primary" id="btnSavePdf">保存成 PDF</button>
       </div>
+
+      <div class="serverPanel" id="serverPanel">
+        <input class="serverInput" id="serverUrl" placeholder="http://192.168.1.10:10000"
+          autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <button class="serverBtn primary" id="serverSave">保存</button>
+        <button class="serverBtn" id="serverTest">测试</button>
+        <button class="serverBtn" id="serverClear">清除</button>
+      </div>
+      <div class="serverState" id="serverState"></div>
 
       <div class="coreLine" id="coreLine">共享 C++ 图像核心</div>
 
@@ -584,6 +636,9 @@
       const btnSaveImages = document.getElementById('btnSaveImages');
       const btnSavePdf = document.getElementById('btnSavePdf');
       const btnShare = document.getElementById('btnShare');
+      const serverPanel = document.getElementById('serverPanel');
+      const serverUrlInput = document.getElementById('serverUrl');
+      const serverState = document.getElementById('serverState');
 
       // ---------------------------------------------------------------------
       // 原生桥
@@ -741,6 +796,96 @@
           near(q[6], 0) && near(q[7], 1);
       }
 
+      // ---------------------------------------------------------------------
+      // 文档识别服务（model_1228）
+      //
+      // 与 RN 端同一套约定：手动点「裁剪」时把当前底图发给服务端重新识别四角；
+      // 导入后也用它自动切边。没配置 / 不可达时静静退回手动拖角。
+      // ---------------------------------------------------------------------
+      const SERVER_KEY = 'scan.detection.serverUrl.v1';
+      let cropDetectSeq = 0;
+
+      function normalizeServerUrl(input) {
+        const trimmed = (input || '').trim();
+        if (!trimmed) return '';
+        const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : 'http://' + trimmed;
+        return withScheme.replace(/\/+$/, '');
+      }
+
+      // ArkWeb 的 rawfile 来源不保证有 localStorage，内存值兜底
+      let serverUrlMemory = '';
+
+      function getServerUrl() {
+        try {
+          const stored = localStorage.getItem(SERVER_KEY);
+          if (stored !== null) return normalizeServerUrl(stored);
+        } catch (e) { /* localStorage 不可用 */ }
+        return serverUrlMemory;
+      }
+
+      function setServerUrl(url) {
+        serverUrlMemory = url;
+        try {
+          if (url) localStorage.setItem(SERVER_KEY, url);
+          else localStorage.removeItem(SERVER_KEY);
+        } catch (e) { /* 下次进页面会丢，本次会话仍可用 */ }
+      }
+
+      function renderServerState(text, tone) {
+        serverState.textContent = text;
+        serverState.className = 'serverState' + (tone ? ' ' + tone : '');
+      }
+
+      function syncServerPanel() {
+        const url = getServerUrl();
+        serverUrlInput.value = url;
+        renderServerState(
+          url ? '识别服务：' + url : '未配置识别服务：裁剪时只能手动拖四角',
+          ''
+        );
+      }
+
+      /** 服务端结果要过同一套凸性/面积校验，整图 fallback 视为没识别到 */
+      function isUsableDetectedQuad(q) {
+        if (!q || q.length !== 8) return false;
+        if (!isQuadConvex(q)) return false;
+        const area = quadArea(q);
+        return area >= 0.03 && area <= 0.995;
+      }
+
+      async function detectQuad(input) {
+        const url = getServerUrl();
+        if (!url || !input) return null;
+        const r = await call('detect', { input: input, serverUrl: url }, 12000);
+        return isUsableDetectedQuad(r.quad) ? r.quad : null;
+      }
+
+      /** 导入后自动切边；返回是否真的裁了 */
+      async function autoCropPage(page) {
+        if (!getServerUrl()) return false;
+        const quad = await detectQuad(page.source);
+        if (!quad) return false;
+        const r = await call('warp', {
+          input: page.source,
+          quad: quad,
+          quality: 92,
+          maxDim: 1600,
+          withData: false,
+        }, 120000);
+        const oldSource = page.source;
+        page.source = r.output;
+        page.rotation = 0;
+        page.basePath = page.source;
+        page.baseData = '';
+        page.previewKey = '';
+        page.previewData = '';
+        page.previewPath = '';
+        page.width = 0;
+        page.height = 0;
+        call('delete', { paths: [oldSource] }).catch(function () {});
+        return true;
+      }
+
       function moveQuad(start, handle, dnx, dny) {
         const q = start.slice();
         if (handle.kind === 'corner') {
@@ -791,6 +936,8 @@
         state.pages = append ? state.pages.concat(pages) : pages;
         state.thumbs = null;
         state.thumbKey = '';
+        // 返回新建的页面对象，调用方可以继续自动切边
+        return pages;
       }
 
       function renderInto(page, withData, overrides) {
@@ -1258,7 +1405,18 @@
             return;
           }
           const start = state.pages.length;
-          installPages(r.pages, true);
+          const added = installPages(r.pages, true);
+          // 导入后自动切边：识别不到/服务未配置时保留原图
+          if (getServerUrl()) {
+            for (let i = 0; i < added.length; i++) {
+              setBusy('正在识别 ' + (i + 1) + '/' + added.length + '…');
+              try {
+                await autoCropPage(added[i]);
+              } catch (e) {
+                showToast('自动切边失败：' + e.message, 2200);
+              }
+            }
+          }
           await activate(start);
         } catch (e) {
           showToast('导入失败：' + e.message, 3000);
@@ -1344,9 +1502,41 @@
         showPageImage();
         layoutPhoto();
         syncChrome();
+        prefillCropQuad(page);
+      }
+
+      /**
+       * 打开裁剪框后异步问服务端要一次四角；回来时用户可能已经关掉裁剪/切页，
+       * 用序号 + 当前页双重校验，晚到的结果直接丢弃。
+       */
+      async function prefillCropQuad(page) {
+        if (!getServerUrl()) return;
+        const token = ++cropDetectSeq;
+        const input = page.basePath || page.source;
+        if (!input) return;
+        setBusy('正在识别…');
+        try {
+          const quad = await detectQuad(input);
+          if (token !== cropDetectSeq || !state.cropMode || activePage() !== page) return;
+          if (quad) {
+            state.quad = quad;
+            layoutPhoto();
+            renderCrop();
+            showToast('已用识别服务预填四角', 1600);
+          } else {
+            showToast('识别服务没有返回有效四角，请手动调整', 2200);
+          }
+        } catch (e) {
+          if (token === cropDetectSeq) {
+            showToast('识别服务不可用：' + e.message, 2600);
+          }
+        } finally {
+          if (token === cropDetectSeq && !state.running) setBusy('');
+        }
       }
 
       function exitCrop() {
+        cropDetectSeq++;
         state.cropMode = false;
         state.quad = null;
         state.drag = null;
@@ -1607,7 +1797,40 @@
           else if (tool === 'right') rotateBy(90);
           else if (tool === 'crop') enterCrop();
           else if (tool === 'ocr') showToast('OCR 文字识别功能正在开发中。', 2400);
+          else if (tool === 'server') {
+            serverPanel.classList.toggle('open');
+            if (serverPanel.classList.contains('open')) {
+              syncServerPanel();
+              serverUrlInput.focus();
+            }
+          }
         });
+      });
+
+      // 识别服务：保存 / 清除 / 测试
+      document.getElementById('serverSave').addEventListener('click', function () {
+        setServerUrl(normalizeServerUrl(serverUrlInput.value));
+        syncServerPanel();
+        showToast(getServerUrl() ? '识别服务已保存' : '识别服务已清除', 1600);
+      });
+      document.getElementById('serverClear').addEventListener('click', function () {
+        setServerUrl('');
+        syncServerPanel();
+        showToast('识别服务已清除', 1600);
+      });
+      document.getElementById('serverTest').addEventListener('click', async function () {
+        const url = normalizeServerUrl(serverUrlInput.value) || getServerUrl();
+        if (!url) {
+          renderServerState('先填写识别服务地址', 'bad');
+          return;
+        }
+        renderServerState('正在测试…', '');
+        try {
+          const r = await call('ping', { serverUrl: url }, 8000);
+          renderServerState(r.reachable ? '连接成功' : '无法连接', r.reachable ? 'ok' : 'bad');
+        } catch (e) {
+          renderServerState('无法连接：' + e.message, 'bad');
+        }
       });
 
       adjustSlider.addEventListener('input', onAdjustInput);
@@ -1705,7 +1928,13 @@
             showToast('示例图未就绪（检查 rawfile/sample.jpg）', 3000);
             return;
           }
-          installPages(r.pages, false);
+          const added = installPages(r.pages, false);
+          if (getServerUrl() && added.length) {
+            setBusy('正在识别文档边缘…');
+            try {
+              await autoCropPage(added[0]);
+            } catch (e) { /* 示例图保留原样 */ }
+          }
           await activate(0);
         } catch (e) {
           showToast('示例载入失败：' + e.message, 3000);
@@ -1728,6 +1957,7 @@
         coreLine.textContent = 'image-core ' + version + ' · 算法在共享 C++';
         buildFilterStrip();
         buildAdjustChips();
+        syncServerPanel();
         syncChrome();
         loadSample();
       }

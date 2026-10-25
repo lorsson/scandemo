@@ -3,6 +3,7 @@ import { router, promptAction } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import imageCore from 'libimage_core.so';
 
@@ -32,6 +33,23 @@ interface BridgeRequest {
   filters?: string[];
   /** false 时不把 JPEG 读成 data URL 回传（非当前页用不到） */
   withData?: boolean;
+  /** 文档识别服务地址（与 RN 端「我的 → 文档识别服务」同一个契约） */
+  serverUrl?: string;
+}
+
+interface DetectPoint {
+  x: number;
+  y: number;
+}
+
+interface DetectResponse {
+  code?: number;
+  message?: string;
+  data?: DetectData;
+}
+
+interface DetectData {
+  points?: DetectPoint[];
 }
 
 interface ThumbPayload {
@@ -68,6 +86,10 @@ interface BridgeResult {
   thumbs?: ThumbPayload[];
   count?: number;
   saved?: boolean;
+  /** detect 的结果：8 个归一化坐标 TL,TR,BR,BL（相对上传图），识别不到为 null */
+  quad?: number[] | null;
+  /** ping 的结果：能收到任意 HTTP 响应即为 true */
+  reachable?: boolean;
 }
 
 const SCAN_MAX_DIM: number = 1400;
@@ -150,8 +172,8 @@ class NativeBridge {
     }
   }
 
-  /** 读成 data URL 交给 H5 显示；ArkWeb 不保证能直接加载沙盒 file:// */
-  private dataUrl(path: string): string {
+  /** 读文件并 base64 编码；空文件返回空串 */
+  private fileBase64(path: string): string {
     const stat: fs.Stat = fs.statSync(path);
     const size: number = stat.size;
     if (size <= 0) {
@@ -165,8 +187,90 @@ class NativeBridge {
       fs.closeSync(file);
     }
     const helper: util.Base64Helper = new util.Base64Helper();
-    return 'data:image/jpeg;base64,' +
-      helper.encodeToStringSync(new Uint8Array(buffer));
+    return helper.encodeToStringSync(new Uint8Array(buffer));
+  }
+
+  /** 读成 data URL 交给 H5 显示；ArkWeb 不保证能直接加载沙盒 file:// */
+  private dataUrl(path: string): string {
+    const base64: string = this.fileBase64(path);
+    return base64 === '' ? '' : 'data:image/jpeg;base64,' + base64;
+  }
+
+  /** 设置页的连通性测试：任何 HTTP 响应都算可达 */
+  private async pingServer(serverUrl: string): Promise<boolean> {
+    if (serverUrl === '') {
+      return false;
+    }
+    const request: http.HttpRequest = http.createHttp();
+    try {
+      await request.request(serverUrl.replace(/\/+$/, '') + '/api/edgeDetector', {
+        method: http.RequestMethod.GET,
+        connectTimeout: 3000,
+        readTimeout: 3000,
+        expectDataType: http.HttpDataType.STRING,
+      });
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      request.destroy();
+    }
+  }
+
+  /**
+   * 调服务端 model_1228 识别四角（与 RN 端 detectionServer.ts 同一契约）。
+   * 服务端不可达/超时/返回整图四角时返回 null，H5 继续让用户手动拖。
+   */
+  private async detectOnServer(
+    input: string,
+    serverUrl: string
+  ): Promise<number[] | null> {
+    const dir: string = this.ensureWorkDir();
+    const small: string = dir + '/det-' + this.nextId('') + '.jpg';
+    try {
+      // 上传前压到 1280：服务端输入是 512，传原图只会拖慢上传
+      const timings: FilterTimings =
+        await ImageCoreService.resizeFile(input, small, 1280, 90);
+      const base64: string = this.fileBase64(small);
+      if (base64 === '') {
+        return null;
+      }
+      const request: http.HttpRequest = http.createHttp();
+      try {
+        const url: string = serverUrl.replace(/\/+$/, '') + '/api/edgeDetector';
+        const response: http.HttpResponse = await request.request(url, {
+          method: http.RequestMethod.POST,
+          header: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          extraData: JSON.stringify({ image: base64 }),
+          connectTimeout: 4000,
+          readTimeout: 4000,
+          expectDataType: http.HttpDataType.STRING,
+        });
+        if (response.responseCode !== 200 || typeof response.result !== 'string') {
+          return null;
+        }
+        const body: DetectResponse = JSON.parse(response.result as string) as DetectResponse;
+        const points: DetectPoint[] | undefined = body.data?.points;
+        if (body.code !== 200 || points === undefined || points.length !== 4) {
+          return null;
+        }
+        const quad: number[] = [];
+        for (let i = 0; i < 4; i++) {
+          const nx: number = points[i].x / timings.width;
+          const ny: number = points[i].y / timings.height;
+          quad.push(Math.min(1, Math.max(0, nx)));
+          quad.push(Math.min(1, Math.max(0, ny)));
+        }
+        return quad;
+      } finally {
+        request.destroy();
+      }
+    } catch (e) {
+      // 超时/网络错误：退回手动裁剪，不让整条流程失败
+      return null;
+    } finally {
+      this.deleteQuietly(small);
+    }
   }
 
   private nextId(prefix: string): string {
@@ -377,6 +481,23 @@ class NativeBridge {
           this.deleteQuietly(small);
         }
         this.post({ id: req.id, ok: true, thumbs: thumbs });
+        return;
+      }
+      if (req.op === 'ping') {
+        const serverUrl: string = req.serverUrl === undefined ? '' : req.serverUrl.trim();
+        const reachable: boolean = await this.pingServer(serverUrl);
+        this.post({ id: req.id, ok: true, reachable: reachable });
+        return;
+      }
+      if (req.op === 'detect') {
+        const input: string = this.requireString(req.input, 'input');
+        const serverUrl: string = req.serverUrl === undefined ? '' : req.serverUrl.trim();
+        if (serverUrl === '') {
+          this.post({ id: req.id, ok: true, quad: null });
+          return;
+        }
+        const quad: number[] | null = await this.detectOnServer(input, serverUrl);
+        this.post({ id: req.id, ok: true, quad: quad });
         return;
       }
       if (req.op === 'warp') {

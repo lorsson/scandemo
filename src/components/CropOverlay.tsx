@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, View } from 'react-native';
 
+import { isQuadConvex } from '../lib/crop';
 import { useI18n } from '../lib/i18n';
 import type { DocumentQuad, NormalizedPoint } from '../types';
+
+// 保持原来的导出路径：ScanEditorScreen 等调用方继续从这里取
+export { isQuadConvex };
 
 /**
  * 四角裁剪框。
@@ -53,35 +57,6 @@ const INVALID = '#ff453a';
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
-}
-
-/**
- * 四个点按 左上→右上→右下→左下 的顺序是否围成凸四边形。
- *
- * 逐顶点看相邻两条边的叉积：凸四边形四个叉积同号；出现相反符号说明
- * 某个角凹进去（或边自交），透视变换会撕裂，属于无效区域。
- * 归一化坐标的 x/y 缩放不影响符号。
- */
-export function isQuadConvex(quad: DocumentQuad): boolean {
-  const points = [
-    quad.topLeft,
-    quad.topRight,
-    quad.bottomRight,
-    quad.bottomLeft,
-  ];
-  let sign = 0;
-  for (let i = 0; i < points.length; i += 1) {
-    const a = points[i];
-    const b = points[(i + 1) % points.length];
-    const c = points[(i + 2) % points.length];
-    const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
-    // 三点共线 -> 退化成三角/线段，同样无效
-    if (Math.abs(cross) < 1e-6) return false;
-    const current = cross > 0 ? 1 : -1;
-    if (sign === 0) sign = current;
-    else if (current !== sign) return false;
-  }
-  return true;
 }
 
 function moveQuad(

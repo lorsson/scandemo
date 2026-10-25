@@ -100,7 +100,7 @@ const ja: Record<MessageKey, string> = {
   ocrHint: '画像からテキストを抽出',
   soonTag: '近日公開',
   toolsFooter:
-    'すべての処理はこの端末で行われます。画像がアップロードされることはありません。',
+    'すべての処理はこの端末で行われます。画像は、設定した検出サーバーに「切り抜き」を押したときだけ送信されます。',
 
   nativeEngine: 'ネイティブC++',
   canvasEngine: 'WebView Canvas',
@@ -116,7 +116,7 @@ const ja: Record<MessageKey, string> = {
   appSandbox: 'アプリのサンドボックス',
   appSandboxHint: 'アプリのアンインストール時に削除されます',
   privacy: 'プライバシー',
-  onDeviceOnly: 'すべて端末内で処理',
+  onDeviceOnly: '既定は端末内で処理',
   platform: 'プラットフォーム',
   profileFooter: 'Android + iOS + HarmonyOS は同じ C++ アルゴリズムを共有',
   language: '言語',
@@ -362,6 +362,25 @@ const ja: Record<MessageKey, string> = {
     '透視トリミングはまだ実装されていません。ONNX検出は接続済みですが、warp ステップがありません',
   cropA11y:
     'トリミング領域。4つの角または辺の中央をドラッグして調整します。',
+
+  // ---- 書類検出 ----
+  detectionServer: '書類検出サービス',
+  detectionServerHint:
+    '任意。［切り抜き］を押すと、このサーバーの model_1228 で四隅を再検出します。',
+  detectionServerPlaceholder: 'http://192.168.1.10:10000',
+  detectionServerTest: '接続をテスト',
+  detectionServerTesting: 'テスト中…',
+  detectionServerReachable: '接続OK',
+  detectionServerUnreachable: '接続できません',
+  detectionServerClear: 'クリア',
+  detectionServerSaved: '保存しました',
+  detecting: 'エッジを検出中…',
+  detectingProgress: '検出中 {done}/{total}',
+  autoCropping: '切り抜き中…',
+  autoCroppingProgress: '切り抜き中 {done}/{total}',
+  detectingServer: 'サーバーで検出中…',
+  liveDetectHint: '書類を枠内に合わせてください',
+  liveCorners: '四隅',
 };
 
 export default ja;

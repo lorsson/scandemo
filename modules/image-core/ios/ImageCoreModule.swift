@@ -47,6 +47,12 @@ public final class ImageCoreModule: Module {
       )
     }
 
+    // 按 EXIF 转正后的像素尺寸（与 UIImage 实际显示方向一致）
+    AsyncFunction("imageSize") { (path: String) -> [String: Any] in
+      let upright = try uprightImage(path)
+      return ["width": upright.width, "height": upright.height]
+    }
+
     // 四角透视裁剪：quad 为 8 个归一化坐标 TL,TR,BR,BL
     AsyncFunction("warpFile") {
       (
@@ -96,6 +102,25 @@ public final class ImageCoreModule: Module {
         pageWidth: pageWidth,
         pageHeight: pageHeight
       )
+    }
+
+    // 端侧文档四角检测（Vision）：path 不带 file://，与 Android detectFile 同契约
+    AsyncFunction("detectFile") { (path: String) -> [String: Any]? in
+      DocumentRectDetector.detectFile(path: path)?.dictionary
+    }
+
+    // JS 侧需要同步判断能否渲染原生取景组件
+    Function("isCameraAvailable") { true }
+
+    // 实时相机取景：AVCaptureSession 预览 + 帧分析 + 拍照
+    View(ImageCoreCameraView.self) {
+      Events("onQuad", "onError")
+      OnViewDidUpdateProps { (view: ImageCoreCameraView) in
+        view.startSessionIfNeeded()
+      }
+      AsyncFunction("takePicture") { (view: ImageCoreCameraView) async throws -> [String: Any] in
+        try await view.takePicture()
+      }
     }
   }
 
@@ -397,9 +422,7 @@ public final class ImageCoreModule: Module {
   private func decodePixels(
     _ path: String
   ) throws -> (width: Int, height: Int, pixels: [UInt32]) {
-    guard let image = UIImage(contentsOfFile: path)?.cgImage else {
-      throw ImageCoreError.decodeFailed(path)
-    }
+    let image = try uprightImage(path)
     let width = image.width
     let height = image.height
     var pixels = [UInt32](repeating: 0, count: width * height)
@@ -420,6 +443,44 @@ public final class ImageCoreModule: Module {
       context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
     }
     return (width, height, pixels)
+  }
+
+  /**
+   * 按 EXIF 方向转正后的 CGImage 与尺寸。
+   *
+   * `UIImage.cgImage` 是传感器原始方向，而渲染端（RN Image）会按 EXIF 摆正；
+   * 裁剪/缩放/滤镜必须用同一套方向，否则竖拍照片会整体偏 90°。
+   * 输出 JPEG 不带 EXIF，转正后不会再被转第二次。
+   */
+  private func uprightImage(
+    _ path: String
+  ) throws -> (width: Int, height: Int, image: CGImage) {
+    guard
+      let source = UIImage(contentsOfFile: path),
+      let cgImage = source.cgImage
+    else {
+      throw ImageCoreError.decodeFailed(path)
+    }
+
+    let swaps = [.left, .right, .leftMirrored, .rightMirrored]
+      .contains(source.imageOrientation)
+    let width = swaps ? cgImage.height : cgImage.width
+    let height = swaps ? cgImage.width : cgImage.height
+    if source.imageOrientation == .up {
+      return (width, height, cgImage)
+    }
+
+    let format = UIGraphicsImageRendererFormat.default()
+    format.scale = 1
+    format.opaque = true
+    let size = CGSize(width: CGFloat(width), height: CGFloat(height))
+    let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+      source.draw(in: CGRect(origin: .zero, size: size))
+    }
+    guard let upright = rendered.cgImage else {
+      throw ImageCoreError.decodeFailed(path)
+    }
+    return (width, height, upright)
   }
 
   /** 把像素写成 JPEG，返回编码耗时（毫秒） */

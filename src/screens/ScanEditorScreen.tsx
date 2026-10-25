@@ -37,14 +37,21 @@ import CropLoupe, {
 } from '../components/CropLoupe';
 import PhotoPickerScreen from './PhotoPickerScreen';
 import { isNativeGeometryAvailable } from '../../modules/image-core';
-import { isAbortError } from '../lib/abort';
+import { isAbortError, throwIfAborted } from '../lib/abort';
 import {
   FULL_QUAD,
   MIN_QUAD_AREA,
   isFullQuad,
+  isUsableQuad,
   quadArea,
   quadToArray,
 } from '../lib/crop';
+import { getDetectionServerUrl } from '../lib/detectionConfig';
+import { detectOnServer } from '../lib/detectionServer';
+import {
+  detectDocumentQuad,
+  isEdgeDetectionAvailable,
+} from '../lib/documentDetection';
 import { filterWithCanvas, warpWithCanvas } from '../lib/filterEngine';
 import {
   isNativeAdjustAvailable,
@@ -98,6 +105,11 @@ type Props = {
   /** 本次编辑的草稿 id，同时也是草稿目录名 */
   draftId: string;
   initialUris: string[];
+  /**
+   * 是否把识别到的四角直接切边。相机拍照为 true；
+   * 相册导入为 false，保留原始图，识别结果只作为「裁剪」初值。
+   */
+  autoCrop?: boolean;
   /** 文档默认标题（第一张图片的文件名），编辑器里可改 */
   title: string;
   onCancel: () => void;
@@ -108,6 +120,9 @@ type Busy =
   | { kind: 'apply'; done: number; total: number }
   | { kind: 'pdf'; done: number; total: number }
   | { kind: 'export'; done: number; total: number }
+  | { kind: 'detect'; done: number; total: number }
+  | { kind: 'autocrop'; done: number; total: number }
+  | { kind: 'detectServer' }
   | { kind: 'crop' }
   | { kind: 'replace' }
   | null;
@@ -142,6 +157,7 @@ const CROP_GRAB_PAD = CROP_INSET - 4;
 export default function ScanEditorScreen({
   draftId,
   initialUris,
+  autoCrop = false,
   title,
   onCancel,
 }: Props) {
@@ -182,6 +198,15 @@ export default function ScanEditorScreen({
   const [cropMode, setCropMode] = useState(false);
   const [quad, setQuad] = useState<DocumentQuad>(FULL_QUAD);
   /**
+   * 裁剪时显示的底图。页面有裁剪前原图（cropBaseUri）时用它，
+   * 这样用户能看到完整原图、把切多的部分拉回来；否则就是当前页的源图。
+   */
+  const [cropUri, setCropUri] = useState<string | null>(null);
+  const [cropSize, setCropSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  /**
    * 拖动中的手柄。放大镜画在页面最外层：允许超出图片边界，
    * 超出部分保持透明，只有图片区域被放大。
    */
@@ -202,6 +227,14 @@ export default function ScanEditorScreen({
   const running = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const started = useRef(false);
+  /** 每页上次识别到的四角：服务端/端侧都失败时作为裁剪初值 */
+  const suggestionsRef = useRef(new Map<string, DocumentQuad>());
+  /** 递增序号：切页/再次点裁剪后丢弃过期的识别结果 */
+  const cropRequestRef = useRef(0);
+  /** 裁剪底图是旋转出来的临时文件，退出裁剪时删掉 */
+  const cropTempRef = useRef<string | null>(null);
+  /** 手动裁剪时的服务端/端侧识别请求，切页或关闭裁剪就中止 */
+  const cropDetectAbortRef = useRef<AbortController | null>(null);
   const draftRef = useRef<PageAdjust>(ZERO_ADJUST);
   const previewSeq = useRef(0);
   /** 旋转后的原图缓存（临时文件在卸载时清理） */
@@ -259,19 +292,39 @@ export default function ScanEditorScreen({
     setBusy(null);
   }, []);
 
-  const selectPage = useCallback((index: number) => {
-    const total = pagesRef.current.length;
-    if (!total) return;
-    const next = Math.max(0, Math.min(total - 1, index));
-    if (next === activeRef.current) return;
-    activeRef.current = next;
-    setActive(next);
-    setCompare(false);
+  /** 退出裁剪：中止在途识别，清掉底图和旋转临时文件 */
+  const closeCrop = useCallback(() => {
+    cropRequestRef.current += 1;
+    // 不动 cropDetectAbortRef：在途任务要靠它匹配自己，把忙碌态收尾
+    cropDetectAbortRef.current?.abort();
     setCropMode(false);
-    setAdjustOpen(false);
-    setPreviewUri(null);
-    previewSeq.current++;
+    setCropUri(null);
+    setCropSize(null);
+    setQuad(FULL_QUAD);
+    const temp = cropTempRef.current;
+    cropTempRef.current = null;
+    if (temp) {
+      void FileSystem.deleteAsync(temp, { idempotent: true }).catch(() => {});
+    }
   }, []);
+
+  const selectPage = useCallback(
+    (index: number) => {
+      const total = pagesRef.current.length;
+      if (!total) return;
+      const next = Math.max(0, Math.min(total - 1, index));
+      if (next === activeRef.current) return;
+      activeRef.current = next;
+      setActive(next);
+      setCompare(false);
+      // 切页后，上一页的在途识别结果不再适用
+      closeCrop();
+      setAdjustOpen(false);
+      setPreviewUri(null);
+      previewSeq.current++;
+    },
+    [closeCrop],
+  );
 
   useEffect(() => {
     selectPageRef.current = selectPage;
@@ -294,10 +347,31 @@ export default function ScanEditorScreen({
     return uri;
   }, []);
 
+  /**
+   * 裁剪底图：有裁剪前原图就用它（并套上当前旋转角），否则用当前源图。
+   *
+   * 相机自动切边之后，「当前源图」已经是紧贴文档的结果，拿它继续裁剪只会
+   * 越裁越小；底图让用户能重新框到完整画面。旋转角在裁剪结果里会被烘焙，
+   * 所以底图只需要按页面当前的 rotation 转一次。
+   */
+  const getCropSource = useCallback(
+    async (page: DocPage): Promise<{ uri: string; temp: boolean }> => {
+      const base = page.cropBaseUri;
+      if (!base) return { uri: await getBase(page), temp: false };
+      if (page.rotation === 0) return { uri: base, temp: false };
+      return {
+        uri: await rotateImage(base, page.rotation as 90 | 180 | 270),
+        temp: true,
+      };
+    },
+    [getBase],
+  );
+
   // 卸载时清掉旋转产生的临时文件
   useEffect(() => {
     const cache = baseCache.current;
     return () => {
+      cropDetectAbortRef.current?.abort();
       for (const item of cache.values()) {
         if (item.temp) {
           void FileSystem.deleteAsync(item.uri, { idempotent: true }).catch(() => {});
@@ -307,11 +381,125 @@ export default function ScanEditorScreen({
     };
   }, []);
 
+  /** 裁剪/替换源图后，这一页的旋转缓存、缩略图缓存都失效 */
+  const invalidatePageCache = useCallback((pageId: string) => {
+    for (const [key, entry] of [...thumbCache.current.entries()]) {
+      if (!key.startsWith(`${pageId}:`)) continue;
+      thumbCache.current.delete(key);
+      for (const uri of entry.files) {
+        void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+      }
+    }
+    for (const key of [...mediumCache.current.keys()]) {
+      if (!key.startsWith(`${pageId}:`)) continue;
+      const uri = mediumCache.current.get(key);
+      mediumCache.current.delete(key);
+      mediumBase64Cache.current.delete(key);
+      if (uri) {
+        void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+      }
+    }
+    for (const [key, item] of [...baseCache.current.entries()]) {
+      if (!key.startsWith(`${pageId}:`)) continue;
+      if (item.temp) {
+        void FileSystem.deleteAsync(item.uri, { idempotent: true }).catch(() => {});
+      }
+      baseCache.current.delete(key);
+    }
+  }, []);
+
+  /**
+   * 导入后识别四角：逐页跑端侧 DocCornerNet，只有结果通过凸性/面积校验才采用。
+   *
+   * `crop` 为 true（相机拍照）时直接切边；为 false（相册导入）时保留原始图，
+   * 只把四角存成「裁剪」初值——模型切多了还能重新裁，原图也一直都在。
+   *
+   * 单张失败（模型没把握、解码失败、磁盘错误）只保留原图，不影响整批导入；
+   * 用户随时可以在编辑器里手动点「裁剪」重新识别或调整。
+   */
+  const autoCropPages = useCallback(
+    async (
+      added: DocPage[],
+      signal: AbortSignal,
+      /** 每页的最新落盘版本（切边/重渲染后），导入中止时用来清理文件 */
+      onPage?: (page: DocPage) => void,
+      /** false 时只识别不切边 */
+      crop = true,
+    ): Promise<DocPage[]> => {
+      if (!isEdgeDetectionAvailable() || !isNativeGeometryAvailable()) {
+        added.forEach((page) => onPage?.(page));
+        return added;
+      }
+      const result: DocPage[] = [];
+      const total = added.length;
+      for (let index = 0; index < added.length; index += 1) {
+        throwIfAborted(signal);
+        const page = added[index];
+        let next = page;
+        try {
+          setBusy({ kind: 'detect', done: index, total });
+          const detection = await detectDocumentQuad(page.originalUri, { signal });
+          if (detection && isUsableQuad(detection.quad) && !crop) {
+            // 相册导入：不破坏原图，只留作「裁剪」时的四角初值
+            suggestionsRef.current.set(page.id, detection.quad);
+          } else if (detection && isUsableQuad(detection.quad)) {
+            setBusy({ kind: 'autocrop', done: index, total });
+            const warpedUri = await warpPerspective(
+              page.originalUri,
+              quadToArray(detection.quad),
+            );
+            try {
+              next = await replaceScanPageSourceFromFile(
+                draftId,
+                page,
+                warpedUri,
+                { signal },
+              );
+            } finally {
+              await FileSystem.deleteAsync(warpedUri, {
+                idempotent: true,
+              }).catch(() => {});
+            }
+            invalidatePageCache(page.id);
+            // 源图已经被拉正，切边前的四角坐标对不上新图，不能留作裁剪初值
+            suggestionsRef.current.delete(page.id);
+
+            // 与手动裁剪确认一致：切边后重新套用当前的算法/微调
+            const keepAdjust = sanitizeAdjust(page.adjust);
+            if (page.filter !== 'original' || !isZeroAdjust(keepAdjust)) {
+              const base64 = await renderPageBase64(next, {
+                filter: page.filter,
+                rotation: 0,
+                adjust: keepAdjust,
+              });
+              next = await saveScanPage(draftId, next, base64, {
+                filter: page.filter,
+                rotation: 0,
+                adjust: keepAdjust,
+              });
+            }
+          }
+        } catch (e) {
+          if (isAbortError(e)) throw e;
+          console.warn('[scan] auto crop failed:', e);
+        }
+        result.push(next);
+        onPage?.(next);
+      }
+      return result;
+    },
+    [draftId, invalidatePageCache],
+  );
+
   const addImages = useCallback(
-    async (uris: string[], selectFirst: boolean) => {
+    /** `crop` 只有相机拍照首次进入时为 true，其余（相册导入/追加页）都保留原图 */
+    async (uris: string[], selectFirst: boolean, crop = false) => {
       if (!uris.length || running.current) return;
       const controller = new AbortController();
       abortRef.current = controller;
+      /** 本次导入落盘的最新页面版本，取消时按它删文件（切边会换掉原图路径） */
+      const tracked = new Map<string, DocPage>();
+      let committed = false;
       begin({ kind: 'import', done: 0, total: uris.length });
       setError(null);
       try {
@@ -320,10 +508,22 @@ export default function ScanEditorScreen({
           signal: controller.signal,
           onProgress: (done, total) => setBusy({ kind: 'import', done, total }),
         });
+        added.forEach((page) => tracked.set(page.id, page));
+        const cropped = await autoCropPages(
+          added,
+          controller.signal,
+          (page) => tracked.set(page.id, page),
+          crop,
+        );
         const base = pagesRef.current;
-        commit([...base, ...added]);
+        commit([...base, ...cropped]);
+        committed = true;
         if (selectFirst && added.length) selectPageRef.current(base.length);
       } catch (e) {
+        // 取消导入（还没提交进页面列表）：已经落盘的页面要删掉，不能留下孤儿文件
+        if (!committed) {
+          for (const page of tracked.values()) void deletePageFiles(page);
+        }
         if (!isAbortError(e)) {
           Alert.alert(
             t('importFailedTitle'),
@@ -335,15 +535,15 @@ export default function ScanEditorScreen({
         end();
       }
     },
-    [begin, commit, draftId, end, t],
+    [autoCropPages, begin, commit, draftId, end, t],
   );
 
   // 首次进入：把选中的图片落盘；不自动跳页，先展示第一张
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    void addImages(initialUris, false);
-  }, [addImages, initialUris]);
+    void addImages(initialUris, false, autoCrop);
+  }, [addImages, initialUris, autoCrop]);
 
   /** 当前页的原图（含旋转），供对比 / 裁剪 / 缩略图使用 */
   const baseKey = activePage
@@ -638,6 +838,8 @@ export default function ScanEditorScreen({
     (deg: 90 | 270) => {
       const page = pagesRef.current[activeRef.current];
       if (!page || running.current) return;
+      // 四角是按旋转前的画面算的，转完就对不上了
+      suggestionsRef.current.delete(page.id);
       void runEdits([page], (item) => ({
         filter: item.filter,
         rotation: ((item.rotation + deg) % 360) as Rotation,
@@ -647,38 +849,15 @@ export default function ScanEditorScreen({
     [runEdits],
   );
 
-  /** 裁剪/替换源图后，这一页的旋转缓存、缩略图缓存都失效 */
-  const invalidatePageCache = useCallback((pageId: string) => {
-    for (const [key, entry] of [...thumbCache.current.entries()]) {
-      if (!key.startsWith(`${pageId}:`)) continue;
-      thumbCache.current.delete(key);
-      for (const uri of entry.files) {
-        void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
-      }
-    }
-    for (const key of [...mediumCache.current.keys()]) {
-      if (!key.startsWith(`${pageId}:`)) continue;
-      const uri = mediumCache.current.get(key);
-      mediumCache.current.delete(key);
-      mediumBase64Cache.current.delete(key);
-      if (uri) {
-        void FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
-      }
-    }
-    for (const [key, item] of [...baseCache.current.entries()]) {
-      if (!key.startsWith(`${pageId}:`)) continue;
-      if (item.temp) {
-        void FileSystem.deleteAsync(item.uri, { idempotent: true }).catch(() => {});
-      }
-      baseCache.current.delete(key);
-    }
-  }, []);
-
   // 离开编辑器时把缓存文件清掉（**不能**动页面自己的文件）
   useEffect(
     () => () => {
       const files: string[] = [...previewFiles.current];
       previewFiles.current = [];
+      if (cropTempRef.current) {
+        files.push(cropTempRef.current);
+        cropTempRef.current = null;
+      }
       for (const entry of thumbCache.current.values()) files.push(...entry.files);
       for (const uri of mediumCache.current.values()) files.push(uri);
       thumbCache.current.clear();
@@ -710,7 +889,15 @@ export default function ScanEditorScreen({
           );
         }
         let next = await replaceScanPageSource(draftId, page, base64);
+        // 重拍换的是整张图：上一张图（包括它的裁剪前原图）都不再需要
+        if (next.cropBaseUri && next.cropBaseUri !== next.originalUri) {
+          await FileSystem.deleteAsync(next.cropBaseUri, {
+            idempotent: true,
+          }).catch(() => {});
+        }
+        next = { ...next, cropBaseUri: null, cropped: false };
         invalidatePageCache(page.id);
+        suggestionsRef.current.delete(page.id);
         const filter = page.filter;
         const adjust = sanitizeAdjust(page.adjust);
         if (filter !== 'original' || !isZeroAdjust(adjust)) {
@@ -728,7 +915,7 @@ export default function ScanEditorScreen({
         commit(
           pagesRef.current.map((item) => (item.id === page.id ? next : item)),
         );
-        setCropMode(false);
+        closeCrop();
         setAdjustOpen(false);
         setPreviewUri(null);
       } catch (e) {
@@ -740,7 +927,7 @@ export default function ScanEditorScreen({
         end();
       }
     },
-    [begin, commit, draftId, end, invalidatePageCache, t],
+    [begin, closeCrop, commit, draftId, end, invalidatePageCache, t],
   );
 
   /** 图片右上角的删除：三选一 —— 删除此页 / 重拍此页 / 取消 */
@@ -771,6 +958,7 @@ export default function ScanEditorScreen({
             setAdjustOpen(false);
             setPreviewUri(null);
             invalidatePageCache(page.id);
+            suggestionsRef.current.delete(page.id);
             void deletePageFiles(page);
           },
         },
@@ -778,19 +966,133 @@ export default function ScanEditorScreen({
     );
   }, [commit, invalidatePageCache, t]);
 
+  /**
+   * 手动点「裁剪」：先用服务端 model_1228 重新识别一次，再退端侧 DocCornerNet，
+   * 最后用导入时的结果兜底。全部失败就保持整图四角，让用户手动拖。
+   *
+   * 检测期间裁剪框已经打开（先显示整图），结果回来再预填，避免按钮点下去没反应。
+   *
+   * 已经裁过一次的页（`page.cropped`）不再让端侧模型猜：紧贴文档的图没有背景
+   * 边界线索，DocCornerNet 会把顶部切掉，框和画面就错位了。这种页只认服务端
+   * 结果（model_1228 对满幅文档很稳），拿不到就保持整图，让用户自己拖。
+   */
   const handleCropStart = useCallback(() => {
     const page = pagesRef.current[activeRef.current];
-    if (!page || running.current) return;
+    if (!page || !baseUri || running.current) return;
+    // 有裁剪前原图时，检测对象就是完整原图，模型不会因为画面已贴边而往里缩
+    const alreadyCropped = page.cropped === true && !page.cropBaseUri;
     closeAdjust();
-    setQuad(FULL_QUAD);
-    setCropMode(true);
-  }, [closeAdjust]);
+
+    const pageId = page.id;
+    const requestId = ++cropRequestRef.current;
+    // 切页 / 再次点击 / 关掉裁剪后，旧结果直接丢弃
+    const isStale = () =>
+      cropRequestRef.current !== requestId ||
+      pagesRef.current[activeRef.current]?.id !== pageId;
+
+    // 上一轮还没结束的识别先中止（比如服务端卡住时用户又点了一次）
+    cropDetectAbortRef.current?.abort();
+    const controller = new AbortController();
+    cropDetectAbortRef.current = controller;
+    const { signal } = controller;
+
+    void (async () => {
+      let started = false;
+      try {
+        const source = await getCropSource(page);
+        if (isStale() || signal.aborted) {
+          if (source.temp) {
+            void FileSystem.deleteAsync(source.uri, { idempotent: true }).catch(
+              () => {},
+            );
+          }
+          return;
+        }
+        if (source.temp) cropTempRef.current = source.uri;
+        let sourceUri = source.uri;
+
+        // 底图尺寸决定裁剪框的位置；先显示图片，识别结果随后再预填
+        setCropUri(sourceUri);
+        setCropSize(null);
+        setQuad(FULL_QUAD);
+        setCropMode(true);
+
+        // 裁剪框按底图尺寸摆放；尺寸拿不到就只能看整图，先等它
+        let size = await getImageSize(sourceUri).catch(() => null);
+        if (isStale() || signal.aborted) return;
+        if (!size && sourceUri !== baseUri) {
+          // 底图文件丢了（旧索引 / 被清理）：退回当前源图，裁剪照常可用
+          if (source.temp) {
+            void FileSystem.deleteAsync(sourceUri, { idempotent: true }).catch(
+              () => {},
+            );
+            cropTempRef.current = null;
+          }
+          sourceUri = baseUri;
+          setCropUri(null);
+          size = await getImageSize(sourceUri).catch(() => null);
+          if (isStale() || signal.aborted) return;
+        }
+        if (size) setCropSize(size);
+
+        let found: DocumentQuad | null = null;
+
+        const serverUrl = await getDetectionServerUrl();
+        const allowLocal = !alreadyCropped && isEdgeDetectionAvailable();
+        // 已经裁过、又没配服务端：没有可信的识别来源，整图四角就是正确答案
+        if (!serverUrl && !allowLocal) return;
+
+        started = true;
+        begin({ kind: serverUrl ? 'detectServer' : 'detect', done: 0, total: 1 });
+
+        if (serverUrl && !isStale()) {
+          try {
+            const remote = await detectOnServer(sourceUri, serverUrl, { signal });
+            if (remote && isUsableQuad(remote.quad)) found = remote.quad;
+          } catch (error) {
+            // 服务端不可达/超时就当作没配置，继续走端侧
+            if (!isAbortError(error)) {
+              console.warn('[scan] server detection failed:', error);
+            }
+          }
+        }
+
+        if (!found && allowLocal && !signal.aborted && !isStale()) {
+          setBusy({ kind: 'detect', done: 0, total: 1 });
+          const local = await detectDocumentQuad(sourceUri, { signal });
+          if (local && isUsableQuad(local.quad)) found = local.quad;
+        }
+
+        if (!found && allowLocal && !signal.aborted) {
+          const suggestion = suggestionsRef.current.get(pageId);
+          if (suggestion && isUsableQuad(suggestion)) found = suggestion;
+        }
+
+        if (found && isUsableQuad(found) && !isStale() && !signal.aborted) {
+          setQuad(found);
+          suggestionsRef.current.set(pageId, found);
+        }
+      } catch (error) {
+        if (!isAbortError(error)) {
+          console.warn('[scan] crop detection failed:', error);
+        }
+      } finally {
+        if (cropDetectAbortRef.current === controller) {
+          cropDetectAbortRef.current = null;
+          if (started) end();
+        }
+      }
+    })();
+  }, [baseUri, begin, closeAdjust, end, getCropSource]);
 
   const handleCropConfirm = useCallback(async () => {
     const page = pagesRef.current[activeRef.current];
     if (!page || running.current) return;
-    if (isFullQuad(quad)) {
-      setCropMode(false);
+    const sourceUri = cropUri ?? baseUri;
+    // 整图四角：本来就没裁过的页等于「不改」；有裁剪前原图时等于「恢复原图」，
+    // 走一遍恒等透视校正把结果换回完整画面
+    if (isFullQuad(quad) && (!page.cropBaseUri || !sourceUri)) {
+      closeCrop();
       return;
     }
     if (!isQuadConvex(quad)) {
@@ -801,8 +1103,7 @@ export default function ScanEditorScreen({
       Alert.alert(t('cropTooSmallTitle'), t('cropTooSmallBody'));
       return;
     }
-    if (!baseUri) return;
-    const sourceUri = baseUri;
+    if (!sourceUri) return;
     begin({ kind: 'crop' });
     setError(null);
     try {
@@ -828,6 +1129,7 @@ export default function ScanEditorScreen({
         );
       }
       invalidatePageCache(page.id);
+      suggestionsRef.current.delete(page.id);
       const keepAdjust = sanitizeAdjust(page.adjust);
       if (page.filter !== 'original' || !isZeroAdjust(keepAdjust)) {
         const base64 = await renderPageBase64(next, {
@@ -842,8 +1144,7 @@ export default function ScanEditorScreen({
         });
       }
       commit(pagesRef.current.map((item) => (item.id === page.id ? next : item)));
-      setCropMode(false);
-      setQuad(FULL_QUAD);
+      closeCrop();
     } catch (e) {
       Alert.alert(
         t('cropFailedTitle'),
@@ -852,7 +1153,18 @@ export default function ScanEditorScreen({
     } finally {
       end();
     }
-  }, [baseUri, begin, commit, draftId, end, invalidatePageCache, quad, t]);
+  }, [
+    baseUri,
+    begin,
+    closeCrop,
+    commit,
+    cropUri,
+    draftId,
+    end,
+    invalidatePageCache,
+    quad,
+    t,
+  ]);
 
   /** 所有页处理后的图片存进系统相册 */
   const handleSaveAllImages = async () => {
@@ -1014,7 +1326,7 @@ export default function ScanEditorScreen({
         return true;
       }
       if (cropMode) {
-        setCropMode(false);
+        closeCrop();
         return true;
       }
       if (adjustOpen) {
@@ -1025,7 +1337,7 @@ export default function ScanEditorScreen({
       return true;
     });
     return () => sub.remove();
-  }, [adjustOpen, closeAdjust, cropMode, handleCancel]);
+  }, [adjustOpen, closeAdjust, closeCrop, cropMode, handleCancel]);
 
   /** 左右滑动翻页；裁剪 / 处理中不抢手势，避免和拖点冲突 */
   const swipe = useMemo(
@@ -1061,23 +1373,25 @@ export default function ScanEditorScreen({
 
   /** 图片在舞台里按 contain 显示后的实际矩形，裁剪框按它定位 */
   const stageRect = useMemo(() => {
-    if (!imageSize || !stage.width || !stage.height) return null;
+    // 裁剪时按裁剪底图（可能是裁剪前原图，尺寸与当前页不同）定位
+    const sourceSize = cropMode ? cropSize : imageSize;
+    if (!sourceSize || !stage.width || !stage.height) return null;
     // 留出边距，否则贴边的裁剪手柄有一半落在舞台外，按不到
     const availW = Math.max(1, stage.width - CROP_INSET * 2);
     const availH = Math.max(1, stage.height - CROP_INSET * 2);
     const scale = Math.min(
-      availW / imageSize.width,
-      availH / imageSize.height,
+      availW / sourceSize.width,
+      availH / sourceSize.height,
     );
-    const width = imageSize.width * scale;
-    const height = imageSize.height * scale;
+    const width = sourceSize.width * scale;
+    const height = sourceSize.height * scale;
     return {
       x: (stage.width - width) / 2,
       y: (stage.height - height) / 2,
       width,
       height,
     };
-  }, [imageSize, stage]);
+  }, [cropMode, cropSize, imageSize, stage]);
 
   /** 按下手柄：把放大镜的锚点交给页面最外层的放大镜层 */
   const handleActiveHandle = (active: ActiveHandle | null) => {
@@ -1129,6 +1443,13 @@ export default function ScanEditorScreen({
   const displayUri = compare
     ? compareUri
     : previewUri ?? activePage?.uri ?? '';
+  /**
+   * 裁剪时显示的图：底图和当前页源图不是同一张（有裁剪前原图 / 底图按旋转转过）
+   * 时必须显示底图本身，否则画面尺寸和裁剪框对不上。
+   */
+  const cropImageUri =
+    cropUri && cropUri !== baseUri ? cropUri : null;
+  const cropShownUri = cropImageUri ?? (displayUri || compareUri);
 
   const busyText = (() => {
     if (!busy) return '';
@@ -1143,6 +1464,16 @@ export default function ScanEditorScreen({
           : t('creatingPdfProgress', busy);
       case 'export':
         return t('savingToLibraryProgress', busy);
+      case 'detect':
+        return busy.total > 1
+          ? t('detectingProgress', busy)
+          : t('detecting');
+      case 'autocrop':
+        return busy.total > 1
+          ? t('autoCroppingProgress', busy)
+          : t('autoCropping');
+      case 'detectServer':
+        return t('detectingServer');
       case 'crop':
         return t('cropping');
       case 'replace':
@@ -1209,9 +1540,10 @@ export default function ScanEditorScreen({
                   },
                 ]}
               >
-                {/* 所见即所得：按当前算法处理后的画面取景，裁剪后再重新套算法 */}
+                {/* 所见即所得：按当前算法处理后的画面取景，裁剪后再重新套算法；
+                    有裁剪前原图时显示原图，保证画面和裁剪框同尺寸 */}
                 <Image
-                  source={{ uri: displayUri || compareUri }}
+                  source={{ uri: cropShownUri }}
                   style={[
                     styles.cropImage,
                     {
@@ -1262,13 +1594,16 @@ export default function ScanEditorScreen({
             </Pressable>
           )}
 
-          {busy?.kind === 'import' && (
+          {(busy?.kind === 'import' ||
+            busy?.kind === 'detect' ||
+            busy?.kind === 'autocrop') && (
             <View style={styles.overlay}>
               <ActivityIndicator color="#fff" />
               <Text style={styles.overlayText}>{busyText}</Text>
             </View>
           )}
           {(busy?.kind === 'apply' ||
+            busy?.kind === 'detectServer' ||
             busy?.kind === 'crop' ||
             busy?.kind === 'replace' ||
             busy?.kind === 'pdf' ||
@@ -1388,7 +1723,7 @@ export default function ScanEditorScreen({
             </Text>
             <View style={styles.cropActions}>
               <Pressable
-                onPress={() => setCropMode(false)}
+                onPress={closeCrop}
                 disabled={busy !== null}
                 style={({ pressed }) => [
                   styles.cropAction,
@@ -1677,7 +2012,7 @@ export default function ScanEditorScreen({
       {/* 放大镜画在最外层：可以超出图片和预览区边界，超出部分透明 */}
       {loupeLayout && (
         <CropLoupe
-          uri={displayUri || compareUri}
+          uri={cropShownUri}
           imageWidth={loupeLayout.imageWidth}
           imageHeight={loupeLayout.imageHeight}
           focusX={loupeLayout.focusX}
