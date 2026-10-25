@@ -83,11 +83,31 @@ H5  nativeBridge.dispatch(JSON)  ->  Index.ets NativeBridge (serial queue)
 - Thousands of result bytes (data URLs, page lists) cannot be returned from a
   `javaScriptProxy` method reliably, hence the `runJavaScript` callback.
 - The proxy is synchronous and has no file access, so every op is a **command**
-  (`sample`, `pick`, `base`, `render`, `thumbs`, `warp`, `ocr`, `read`,
-  `delete`, `pdf`, `saveImages`, `version`), never a shared-memory buffer.
+  (`sample`, `pick`, `base`, `render`, `thumbs`, `warp`, `detect`, `ocr`,
+  `read`, `delete`, `pdf`, `saveImages`, `version`), never a shared-memory
+  buffer.
 - Only the visible page asks for image data (`withData`); other pages get file
   paths and are rendered when activated. Images are displayed as data URLs
   because `file://` access inside ArkWeb is not reliable for cache paths.
+
+## Edge detection (server-backed)
+
+Same reason: no on-device corner model on HarmonyOS. With a server URL
+configured (the toolbar's 识别服务 panel), the H5 editor:
+
+- after import or camera capture (`autoCropPage`), posts the page to
+  `/api/edgeDetector` and, if a usable quad comes back, warps it immediately;
+- when crop is opened (`prefillCropQuad`), asks once more and pre-fills the four
+  corners instead of starting from the full frame;
+- without a server URL both steps are skipped silently and the crop starts
+  from the full quad.
+
+The response shape is the RN one (`src/lib/detectionServer.ts`):
+`{code:200, data:{points: [[x,y]×4]}}` in uploaded-image pixels; the H5 runs
+the same convexity/area check (`isUsableDetectedQuad`) and treats a full-frame
+fallback as "not detected". `Index.ets` uploads at most 1280 px and gives the
+server 4 s (`detectOnServer`); any failure returns `null` so the crop falls
+back to manual dragging.
 
 ## OCR (server-backed)
 
@@ -178,7 +198,7 @@ On Windows use `ohpm.bat` / `hvigorw.bat` (both need `node` on PATH).
   full scan editor and the 8-function NAPI surface were added (ArkTS strict
   mode passes; earlier builds covered `PdfPage.ets` / `PdfWriter.ets`). The
   later build that added the server-backed `ocr` op is also
-  `BUILD SUCCESSFUL` (incremental), and the H5 suite now runs 63 checks
+  `BUILD SUCCESSFUL` (incremental), and the H5 suite now runs 67 checks
   (OCR panel: no-server prompt, request payload, result text, failure toast).
 - HAP contains `libs/arm64-v8a/libimage_core.so` (stripped, 10 KB) plus
   `resources/rawfile/{index.html,sample.jpg}` and `ets/modules.abc`.

@@ -1529,7 +1529,7 @@ iOS：分享面板）。模拟器上系统面板本身要 3–5 s，之前这段
 
 | 项目 | 方式 | 结果 |
 |---|---|---|
-| WebView 引擎 | headless Edge 执行真实 HTML，11 项引擎 + 52 项 H5 编辑器 | 63/63 |
+| WebView 引擎 | headless Edge 执行真实 HTML，11 项引擎 + 67 项 H5 编辑器 | 78/78 |
 | Android NAPI 桥 | `napi_init.cpp` 编为 Node 插件 | 10/10 + 12 MP 计时 |
 | iOS 桥 | `ImageCoreBridge.mm` 在宿主用 g++ 编译（纯 C++） | 35/35（滤镜/微调/几何/参数校验） |
 | 跨端契约 | filter id、像素布局、字段、模块名 | 44/44 |
@@ -1544,7 +1544,7 @@ iOS：分享面板）。模拟器上系统面板本身要 3–5 s，之前这段
 | 编辑页顶栏 / 导出 | 模拟器 debug APK：标题默认取首图文件名（`s26`）→ 改成 `Test_Doc` → 分享（系统 CHOOSER）→ 保存所有图片（相册 +1）→ 保存成 PDF（SAF → `Download/Test_Doc.pdf`，`%PDF-1.4`）→ 返回（弹出放弃确认） | 通过 |
 | 划选 / 重拍 | 模拟器 debug APK：相册里横向划选一行 → 完成 → 图像右上角 ✕ → 重拍此页 → 选 1 张 → 完成 | 通过（一格起手整行选中、右上角 ✕ 三选一确认、重拍后该页源图与缩略图更新，页码不变） |
 | 鸿蒙 PDF | hvigor 编译 HAP + `PdfWriter.ets` 源码在宿主用 `fileIo` 桩运行 + `pdf-lib` 解析 | 13/13 字节校验（1/2 页）、独立解析 2 页 A4；未在真机/模拟器运行 |
-| 鸿蒙扫描编辑器 | hvigor 编译 HAP（ArkTS strict + CMake）+ 宿主 headless Edge 驱动 H5（mock `nativeBridge` 应答全部 op）+ 真服务 `/api/ocr` 复核契约 | HAP `BUILD SUCCESSFUL`；H5 63/63（滤镜/微调/旋转/裁剪/非凸校验/导出/删除/OCR 面板与失败提示）；`sample_doc.jpg` 返回 11 行、points 均在图内，移植的阅读顺序输出通顺；未在真机运行 |
+| 鸿蒙扫描编辑器 | hvigor 编译 HAP（ArkTS strict + CMake）+ 宿主 headless Edge 驱动 H5（mock `nativeBridge` 应答全部 op）+ 真服务 `/api/ocr` 复核契约 | HAP `BUILD SUCCESSFUL`；H5 67/67（滤镜/微调/旋转/裁剪/非凸校验/导出/删除、服务端自动切边、OCR 面板与失败提示）；`sample_doc.jpg` 返回 11 行、points 均在图内，移植的阅读顺序输出通顺；未在真机运行 |
 | 桌面 C ABI / CLI | Windows（MinGW-w64 16.2 + CMake 4.4）+ Linux（GCC 11 + CMake 3.22）编译运行 | C++ 自检 22/22；CLI 四滤镜、JPEG/PNG/BMP/TGA 均输出正确；DLL 只依赖 `KERNEL32` + UCRT |
 | 桌面 Python / Java | ctypes（3.12 Windows / 3.10 Linux）+ JNI（JDK 17，Windows 与 Linux） | Python 13/13；Java 16/16；`nm`/`objdump` 确认 3 个 `ic_*` 与 3 个 `Java_*` 导出 |
 
@@ -1643,7 +1643,7 @@ iOS：分享面板）。模拟器上系统面板本身要 3–5 s，之前这段
 |---|---|
 | 边缘检测 | 已接端侧模型：Android DocCornerNet ONNX、iOS Vision（`nativeDocumentDetector.ts`）；相机预览实时四角、导入/拍照自动切边；配置了服务端时手动裁剪改问 model_1228（`detectionServer.ts`） |
 | 鸿蒙 OCR | 已完成（服务端）：H5「提取文字」→ `Index.ets` 的 `ocr` op → 短边 1600 JPEG → `POST /api/ocr` → 与 RN 同口径的阅读顺序拼行 → 结果面板（可复制）。没有端侧模型，必须先在「识别服务」里配置地址 |
-| 鸿蒙切边 | 共享 C++ 内核里再补一份检测（或 NAPI 调 ONNX Runtime），H5 侧沿用现有四角入口 |
+| 鸿蒙切边 | 已完成（服务端）：配置服务地址后，导入/拍照自动切边、打开裁剪预填四角（H5 `autoCropPage` / `prefillCropQuad` → `Index.ets` 的 `detect` op → `/api/edgeDetector`）；端侧模型（共享 C++ 或 NAPI 调 ONNX Runtime）仍缺，没配服务时手动拖四角 |
 | ONNX 批量推理 / 低内存 | 有界并发 + session 复用 + 降采样解码，见 [EDGE_DETECTION.md](EDGE_DETECTION.md) §5 |
 | 手动批注 | `DocPage.annotations` 已预留（扫描与 PDF 共用）；建议渲染成位图写回 `uri`，避免 PDF 阶段再合成 |
 | 大页数 PDF | 原生流式 writer 替换 expo-print，见 [EDGE_DETECTION.md](EDGE_DETECTION.md) §6 |
