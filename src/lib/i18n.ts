@@ -145,7 +145,7 @@ const en = {
   ocrHint: 'Extract text from images',
   soonTag: 'Soon',
   toolsFooter:
-    'Everything is processed on this device. Images are only sent to a server you configure, and only when you tap Crop.',
+    'Everything is processed on this device. Images only go to a server you configure: when you tap Crop, or when on-device text recognition is unavailable.',
 
   // ---- 我的 ----
   nativeEngine: 'Native C++',
@@ -311,12 +311,10 @@ const en = {
   ocrCropFailedTitle: 'Crop failed',
   ocrNeedsServerTitle: 'Text recognition service not set',
   ocrNeedsServerBody:
-    'Set the document service address in Profile first. Pages are sent to that server for text recognition.',
+    'Text recognition is not available on this device. Set the document service address in Profile first; pages are then sent to that server.',
   ocrFailedTitle: 'Recognition failed',
-  ocrFailedBody_one:
-    '{count} page could not be recognized. Check the server and try again.',
-  ocrFailedBody_other:
-    '{count} pages could not be recognized. Check the server and try again.',
+  ocrFailedBody_one: '{count} page could not be recognized. Try again.',
+  ocrFailedBody_other: '{count} pages could not be recognized. Try again.',
   ocrNoTextPage: 'No text was found on this page.',
   ocrNoText: 'Nothing to copy yet.',
   ocrCopied: 'Copied to clipboard',
@@ -605,7 +603,7 @@ const zh: Record<MessageKey, string> = {
   ocrHint: '提取图片里的文字',
   soonTag: '敬请期待',
   toolsFooter:
-    '所有处理都在本机完成；只有配置了识别服务并点「裁剪」时，当前图片才会发给该服务。',
+    '所有处理都在本机完成；只有点「裁剪」或端侧文字识别不可用时，当前图片才会发送到你配置的识别服务。',
 
   nativeEngine: '原生 C++',
   canvasEngine: 'WebView Canvas',
@@ -757,10 +755,10 @@ const zh: Record<MessageKey, string> = {
   ocrCropFailedTitle: '裁剪失败',
   ocrNeedsServerTitle: '尚未配置文字识别服务',
   ocrNeedsServerBody:
-    '请先在「我的」里填写文档识别服务地址，图片会上传到该服务识别文字。',
+    '当前设备不支持端侧文字识别。请先在「我的」里填写文档识别服务地址，图片会上传到该服务识别文字。',
   ocrFailedTitle: '识别失败',
-  ocrFailedBody_one: '{count} 页识别失败，请检查服务后重试。',
-  ocrFailedBody_other: '{count} 页识别失败，请检查服务后重试。',
+  ocrFailedBody_one: '{count} 页识别失败，请重试。',
+  ocrFailedBody_other: '{count} 页识别失败，请重试。',
   ocrNoTextPage: '这一页没有检测到文字。',
   ocrNoText: '还没有可复制的内容。',
   ocrCopied: '已复制到剪贴板',

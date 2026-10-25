@@ -100,7 +100,7 @@ const de: Record<MessageKey, string> = {
   ocrHint: 'Text aus Bildern extrahieren',
   soonTag: 'Bald',
   toolsFooter:
-    'Alles wird auf diesem Gerät verarbeitet. Bilder gehen nur an einen von dir eingerichteten Server, und nur wenn du auf „Zuschneiden“ tippst.',
+    'Alles wird auf diesem Gerät verarbeitet. Bilder gehen nur an einen von dir eingerichteten Server: beim Tippen auf „Zuschneiden“ oder wenn die lokale Texterkennung nicht verfügbar ist.',
 
   nativeEngine: 'Natives C++',
   canvasEngine: 'WebView Canvas',
@@ -261,12 +261,12 @@ const de: Record<MessageKey, string> = {
   ocrCropFailedTitle: 'Zuschneiden fehlgeschlagen',
   ocrNeedsServerTitle: 'Texterkennungsdienst nicht eingerichtet',
   ocrNeedsServerBody:
-    'Bitte zuerst unter „Profil“ die Adresse des Dokumentdienstes eintragen. Seiten werden zur Texterkennung an diesen Server gesendet.',
+    'Die Texterkennung ist auf diesem Gerät nicht verfügbar. Trage zuerst unter „Profil“ die Adresse des Dokumentdienstes ein; Seiten werden dann an diesen Server gesendet.',
   ocrFailedTitle: 'Erkennung fehlgeschlagen',
   ocrFailedBody_one:
-    '{count} Seite konnte nicht erkannt werden. Prüfe den Server und versuche es erneut.',
+    '{count} Seite konnte nicht erkannt werden. Versuche es erneut.',
   ocrFailedBody_other:
-    '{count} Seiten konnten nicht erkannt werden. Prüfe den Server und versuche es erneut.',
+    '{count} Seiten konnten nicht erkannt werden. Versuche es erneut.',
   ocrNoTextPage: 'Auf dieser Seite wurde kein Text gefunden.',
   ocrNoText: 'Noch nichts zum Kopieren.',
   ocrCopied: 'In die Zwischenablage kopiert',

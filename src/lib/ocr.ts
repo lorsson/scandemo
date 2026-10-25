@@ -31,6 +31,11 @@ export type OcrPage = {
   height: number;
   status: OcrPageStatus;
   lines: OcrLine[];
+  /**
+   * 整页文本（行间 `\n`，顺序就是 lines 的阅读顺序）。
+   * undefined = 用户还没动过，直接用 lines 拼；改过一次后就以它为导出源。
+   */
+  text?: string;
   error?: string;
 };
 
@@ -81,14 +86,16 @@ export function lineBounds(line: OcrLine) {
 }
 
 /**
- * 阅读顺序：先按行（垂直重叠的行算同一行），行内从左到右。
+ * 把行按「同一行」分组：从上到下，行内从左到右。
  *
  * 检测模型的输出顺序大体是自上而下，但表格/多栏里会出现整段顺序错乱；
- * 排序只影响初始展示，用户改完的文本按这个顺序导出。
  * 行高用中位数，避免个别异常高的框把整页切错。
+ *
+ * 只把横向的行归进同一行（同一行里的几段文字用空格连起来），竖向排版的
+ * 竖长框各自成组，否则并排的两列会被拼成一行。
  */
-export function sortReadingOrder(lines: OcrLine[]): OcrLine[] {
-  if (lines.length < 2) return lines;
+export function readingRows(lines: OcrLine[]): OcrLine[][] {
+  if (lines.length < 2) return lines.length ? [lines] : [];
   const heights = lines.map((line) => lineBounds(line).height).sort((a, b) => a - b);
   const median = heights[Math.floor(heights.length / 2)] || 0.02;
   const rowTolerance = Math.max(median * 0.6, 0.008);
@@ -106,14 +113,23 @@ export function sortReadingOrder(lines: OcrLine[]): OcrLine[] {
     const row = rows[rows.length - 1];
     if (row) {
       const anchor = lineBounds(row[0]);
-      if (Math.abs(bounds.cy - anchor.cy) <= rowTolerance) {
+      const sameRow =
+        Math.abs(bounds.cy - anchor.cy) <= rowTolerance &&
+        // 竖排文本（框高明显大于宽）不并入横向的行
+        bounds.width >= bounds.height &&
+        row.every((item) => lineBounds(item).width >= lineBounds(item).height);
+      if (sameRow) {
         row.push(line);
         continue;
       }
     }
     rows.push([line]);
   }
-  return rows.flatMap((row) => row.sort((a, b) => lineBounds(a).x0 - lineBounds(b).x0));
+  return rows.map((row) => row.sort((a, b) => lineBounds(a).x0 - lineBounds(b).x0));
+}
+
+export function sortReadingOrder(lines: OcrLine[]): OcrLine[] {
+  return readingRows(lines).flat();
 }
 
 export function buildLines(raw: RawOcrLine[]): OcrLine[] {
@@ -122,16 +138,20 @@ export function buildLines(raw: RawOcrLine[]): OcrLine[] {
   );
 }
 
-export function isLineEdited(line: OcrLine): boolean {
-  return line.text !== line.originalText;
-}
-
 export function isLowConfidence(line: OcrLine): boolean {
   return line.score > 0 && line.score < LOW_CONFIDENCE;
 }
 
+/**
+ * 整页文本：用户改过就用改后的，否则按坐标排出来——
+ * 同一行的几段用空格连，换行就是下一行。
+ */
 export function pageText(page: OcrPage): string {
-  return page.lines.map((line) => line.text).join('\n');
+  if (page.text !== undefined) return page.text;
+  return readingRows(page.lines)
+    .map((row) => row.map((line) => line.text).join(' ').trim())
+    .filter((text) => text.length > 0)
+    .join('\n');
 }
 
 /** 多页导出：页与页之间空一行 */

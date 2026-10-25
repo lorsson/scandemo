@@ -105,7 +105,7 @@ const pt: Record<MessageKey, string> = {
   ocrHint: 'Extrai texto das imagens',
   soonTag: 'Em breve',
   toolsFooter:
-    'Tudo é processado neste dispositivo. As imagens só são enviadas ao servidor que você configurar e apenas ao tocar em Recortar.',
+    'Tudo é processado neste dispositivo. As imagens só são enviadas ao servidor que você configurar ao tocar em Recortar ou quando o reconhecimento de texto no dispositivo não estiver disponível.',
 
   // ---- 我的 ----
   nativeEngine: 'C++ nativo',
@@ -271,12 +271,11 @@ const pt: Record<MessageKey, string> = {
   ocrCropFailedTitle: 'Falha ao recortar',
   ocrNeedsServerTitle: 'Serviço de reconhecimento não configurado',
   ocrNeedsServerBody:
-    'Defina primeiro o endereço do serviço em Perfil. As páginas são enviadas para esse servidor para reconhecer o texto.',
+    'O reconhecimento de texto não está disponível neste dispositivo. Defina primeiro o endereço do serviço em Perfil; as páginas são então enviadas para esse servidor.',
   ocrFailedTitle: 'Falha no reconhecimento',
-  ocrFailedBody_one:
-    'Não foi possível reconhecer {count} página. Verifique o servidor e tente novamente.',
+  ocrFailedBody_one: 'Não foi possível reconhecer {count} página. Tente novamente.',
   ocrFailedBody_other:
-    'Não foi possível reconhecer {count} páginas. Verifique o servidor e tente novamente.',
+    'Não foi possível reconhecer {count} páginas. Tente novamente.',
   ocrNoTextPage: 'Nenhum texto encontrado nesta página.',
   ocrNoText: 'Ainda não há nada para copiar.',
   ocrCopied: 'Copiado para a área de transferência',

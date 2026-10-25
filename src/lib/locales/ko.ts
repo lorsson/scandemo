@@ -100,7 +100,7 @@ const ko: Record<MessageKey, string> = {
   ocrHint: '이미지에서 텍스트 추출',
   soonTag: '업데이트 예정',
   toolsFooter:
-    '모든 처리는 이 기기에서 이루어집니다. 이미지는 설정한 감지 서버로, 자르기를 누를 때만 전송됩니다.',
+    '모든 처리는 이 기기에서 이루어집니다. 이미지는 자르기를 누를 때, 또는 기기 내 텍스트 인식을 사용할 수 없을 때만 설정한 서버로 전송됩니다.',
 
   nativeEngine: '네이티브 C++',
   canvasEngine: 'WebView Canvas',
@@ -261,12 +261,10 @@ const ko: Record<MessageKey, string> = {
   ocrCropFailedTitle: '자르기 실패',
   ocrNeedsServerTitle: '텍스트 인식 서비스가 설정되지 않았습니다',
   ocrNeedsServerBody:
-    '먼저 프로필에서 문서 서비스 주소를 설정하세요. 페이지가 해당 서버로 전송되어 텍스트가 인식됩니다.',
+    '이 기기에서는 기기 내 텍스트 인식을 사용할 수 없습니다. 먼저 프로필에서 문서 서비스 주소를 설정하세요. 페이지가 해당 서버로 전송되어 인식됩니다.',
   ocrFailedTitle: '인식 실패',
-  ocrFailedBody_one:
-    '{count}페이지를 인식하지 못했습니다. 서버를 확인한 뒤 다시 시도하세요.',
-  ocrFailedBody_other:
-    '{count}페이지를 인식하지 못했습니다. 서버를 확인한 뒤 다시 시도하세요.',
+  ocrFailedBody_one: '{count}페이지를 인식하지 못했습니다. 다시 시도하세요.',
+  ocrFailedBody_other: '{count}페이지를 인식하지 못했습니다. 다시 시도하세요.',
   ocrNoTextPage: '이 페이지에서 텍스트를 찾지 못했습니다.',
   ocrNoText: '아직 복사할 내용이 없습니다.',
   ocrCopied: '클립보드에 복사했습니다',

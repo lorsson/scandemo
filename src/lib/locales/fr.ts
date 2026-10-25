@@ -100,7 +100,7 @@ const fr: Record<MessageKey, string> = {
   ocrHint: 'Extraire le texte des images',
   soonTag: 'Bientôt',
   toolsFooter:
-    'Tout est traité sur cet appareil. Les images ne sont envoyées qu’au serveur que vous configurez, et uniquement quand vous touchez « Recadrer ».',
+    'Tout est traité sur cet appareil. Les images ne sont envoyées au serveur que vous configurez que lorsque vous touchez « Recadrer » ou quand la reconnaissance de texte locale n’est pas disponible.',
 
   nativeEngine: 'C++ natif',
   canvasEngine: 'WebView Canvas',
@@ -261,12 +261,10 @@ const fr: Record<MessageKey, string> = {
   ocrCropFailedTitle: 'Échec du recadrage',
   ocrNeedsServerTitle: 'Service de reconnaissance non configuré',
   ocrNeedsServerBody:
-    'Renseignez d’abord l’adresse du service dans Profil. Les pages sont envoyées à ce serveur pour la reconnaissance.',
+    'La reconnaissance de texte n’est pas disponible sur cet appareil. Renseignez d’abord l’adresse du service dans Profil ; les pages sont ensuite envoyées à ce serveur.',
   ocrFailedTitle: 'Échec de la reconnaissance',
-  ocrFailedBody_one:
-    '{count} page n’a pas pu être reconnue. Vérifiez le serveur puis réessayez.',
-  ocrFailedBody_other:
-    '{count} pages n’ont pas pu être reconnues. Vérifiez le serveur puis réessayez.',
+  ocrFailedBody_one: '{count} page n’a pas pu être reconnue. Réessayez.',
+  ocrFailedBody_other: '{count} pages n’ont pas pu être reconnues. Réessayez.',
   ocrNoTextPage: 'Aucun texte détecté sur cette page.',
   ocrNoText: 'Rien à copier pour le moment.',
   ocrCopied: 'Copié dans le presse-papiers',

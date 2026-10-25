@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentRef,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
   BackHandler,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,7 +20,6 @@ import {
   TextInput,
   View,
   type LayoutChangeEvent,
-  type ScrollViewInstance,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -42,12 +48,13 @@ import { useI18n } from '../lib/i18n';
 import { warpPerspective } from '../lib/imagePipeline';
 import {
   documentText,
-  isLineEdited,
   isLowConfidence,
   ocrId,
+  pageText,
   type OcrLine,
   type OcrPage,
 } from '../lib/ocr';
+import { isOnDeviceOcrAvailable, recognizeOnDevice } from '../lib/ocrLocal';
 import { recognizeOnServer } from '../lib/ocrServer';
 import {
   importOcrPage,
@@ -109,11 +116,14 @@ export default function OcrScreen({
   const [mode, setMode] = useState<Mode>('collect');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [title] = useState(initialTitle ?? '');
+  /** 点图片上的某个框时高亮它，方便对照着改文本 */
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** 结果页编辑文字时键盘是否弹出：弹出时收窄图片区，给文本框让位置 */
+  const [keyboardUp, setKeyboardUp] = useState(false);
 
   // 裁剪
   const [cropPageId, setCropPageId] = useState<string | null>(null);
@@ -201,7 +211,12 @@ export default function OcrScreen({
           if (!detection || !isUsableQuad(detection.quad)) continue;
           const warped = await warpPerspective(page.uri, quadToArray(detection.quad));
           try {
-            const next = await replaceOcrPage(warped, sessionId, page.slot);
+            const next = await replaceOcrPage(
+              warped,
+              sessionId,
+              page.slot,
+              page.uri,
+            );
             updatePage(page.id, (current) => ({
               ...current,
               uri: next.uri,
@@ -225,6 +240,7 @@ export default function OcrScreen({
   /** 识别所有还没识别的页（含失败重试） */
   const recognizeAll = useCallback(
     async (force = false) => {
+      Keyboard.dismiss();
       if (runningRef.current) return;
       const targets = pagesRef.current.filter(
         (page) => force || page.status !== 'done',
@@ -233,8 +249,11 @@ export default function OcrScreen({
         setMode('results');
         return;
       }
+      // 端侧优先（Android PP-OCRv4）：识别在本机完成，不需要服务端；
+      // 端侧不可用（Expo Go / 未实现平台）时才要求配置识别服务。
+      const onDevice = isOnDeviceOcrAvailable();
       const baseUrl = await getDetectionServerUrl();
-      if (!baseUrl) {
+      if (!onDevice && !baseUrl) {
         Alert.alert(t('ocrNeedsServerTitle'), t('ocrNeedsServerBody'));
         return;
       }
@@ -258,13 +277,29 @@ export default function OcrScreen({
             error: undefined,
           }));
           try {
-            const lines = await recognizeOnServer(page.uri, baseUrl, {
-              signal: controller.signal,
-            });
+            let lines: OcrLine[];
+            if (onDevice) {
+              try {
+                lines = await recognizeOnDevice(page.uri);
+              } catch (error) {
+                // 端侧模型异常时还有服务端兜底；都没有就把错误留给下方统一处理
+                if (!baseUrl) throw error;
+                console.warn('[ocr] on-device failed, falling back to server', error);
+                lines = await recognizeOnServer(page.uri, baseUrl, {
+                  signal: controller.signal,
+                });
+              }
+            } else {
+              lines = await recognizeOnServer(page.uri, baseUrl, {
+                signal: controller.signal,
+              });
+            }
             updatePage(page.id, (current) => ({
               ...current,
               status: 'done',
               lines,
+              // 重新识别：丢掉用户改过的文本，按新结果重新拼
+              text: undefined,
               error: undefined,
             }));
           } catch (error) {
@@ -402,7 +437,12 @@ export default function OcrScreen({
     try {
       const warped = await warpPerspective(page.uri, quadToArray(cropQuad));
       try {
-        const next = await replaceOcrPage(warped, sessionId, page.slot);
+        const next = await replaceOcrPage(
+          warped,
+          sessionId,
+          page.slot,
+          page.uri,
+        );
         updatePage(page.id, (current) => ({
           ...current,
           uri: next.uri,
@@ -411,6 +451,7 @@ export default function OcrScreen({
           // 画面变了，之前的识别结果作废
           status: 'pending',
           lines: [],
+          text: undefined,
           error: undefined,
         }));
         setSelectedLineId(null);
@@ -451,45 +492,40 @@ export default function OcrScreen({
     [activeId, commit, t],
   );
 
-  const updateLineText = useCallback(
-    (lineId: string, text: string) => {
+  /** 整页文本改动：一个文本框就是这一页的全部内容 */
+  const updatePageText = useCallback(
+    (text: string) => {
       if (!activePage) return;
-      updatePage(activePage.id, (page) => ({
-        ...page,
-        lines: page.lines.map((line) =>
-          line.id === lineId ? { ...line, text } : line,
-        ),
-      }));
+      updatePage(activePage.id, (page) => ({ ...page, text }));
     },
     [activePage, updatePage],
   );
 
-  const revertLine = useCallback(
-    (lineId: string) => {
-      if (!activePage) return;
-      updatePage(activePage.id, (page) => ({
-        ...page,
-        lines: page.lines.map((line) =>
-          line.id === lineId ? { ...line, text: line.originalText } : line,
-        ),
-      }));
-    },
-    [activePage, updatePage],
-  );
+  // —— 图片框与文本框联动 ——
+  const textRef = useRef<ComponentRef<typeof TextInput>>(null);
 
-  // —— 列表滚动联动 ——
-  const listRef = useRef<ScrollViewInstance>(null);
-  const rowOffsets = useRef<Record<string, number>>({});
-
+  /** 点图片上的框：高亮它并聚焦文本框（光标位置按用户自己的操作走） */
   const focusLine = useCallback((lineId: string) => {
     setSelectedLineId(lineId);
-    const y = rowOffsets.current[lineId];
-    if (y !== undefined) {
-      listRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
-    }
+    textRef.current?.focus();
+  }, []);
+
+  // 键盘弹出后可视区域变小：图片收成一条，把空间让给文本框
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => {
+      setKeyboardUp(true);
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardUp(false);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
   }, []);
 
   const handleCopy = useCallback(async () => {
+    Keyboard.dismiss();
     const text = documentText(pagesRef.current);
     if (!text.trim()) {
       setNotice(t('ocrNoText'));
@@ -500,6 +536,7 @@ export default function OcrScreen({
   }, [t]);
 
   const handleExport = useCallback(async () => {
+    Keyboard.dismiss();
     const text = documentText(pagesRef.current);
     if (!text.trim()) {
       setNotice(t('ocrNoText'));
@@ -696,7 +733,8 @@ export default function OcrScreen({
     return (
       <KeyboardAvoidingView
         style={styles.root}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        // edge-to-edge 下 Android 不再随键盘缩小窗口，两端都要自己垫 padding
+        behavior="padding"
       >
         <View style={[styles.topBar, { paddingTop: 12 + insets.top }]}>
           <Pressable
@@ -750,8 +788,10 @@ export default function OcrScreen({
 
         <View style={styles.resultBody}>
           {/* 图片 + 文本框 */}
-          <View
-            style={styles.imagePane}
+          <Pressable
+            style={[styles.imagePane, keyboardUp && styles.imagePaneCompact]}
+            // 点图片区（非文本框）收起键盘
+            onPress={Keyboard.dismiss}
             onLayout={(event: LayoutChangeEvent) => {
               const { width, height } = event.nativeEvent.layout;
               setResultStage((prev) =>
@@ -883,36 +923,24 @@ export default function OcrScreen({
                 </Pressable>
               </View>
             )}
-          </View>
+          </Pressable>
 
-          {/* 文本行 */}
+          {/* 整页文本：一个文本框，按坐标排好序 */}
           <View style={styles.listPane}>
+            {/* 文本框以外的空白：点一下收键盘 */}
+            <Pressable style={StyleSheet.absoluteFill} onPress={Keyboard.dismiss} />
             {activePage && activePage.lines.length > 0 ? (
-              <ScrollView
-                ref={listRef}
-                style={styles.lineList}
-                contentContainerStyle={styles.lineListContent}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="interactive"
-              >
-                {activePage.lines.map((line, index) => (
-                  <LineRow
-                    key={line.id}
-                    line={line}
-                    index={index}
-                    selected={selectedLineId === line.id}
-                    onLayout={(y) => {
-                      rowOffsets.current[line.id] = y;
-                    }}
-                    onChangeText={(text) => updateLineText(line.id, text)}
-                    onFocus={() => setSelectedLineId(line.id)}
-                    onRevert={() => revertLine(line.id)}
-                    revertLabel={t('ocrRevert')}
-                    editedLabel={t('ocrEdited')}
-                    lowLabel={t('ocrLowConfidence')}
-                  />
-                ))}
-              </ScrollView>
+              <View style={styles.textCard}>
+                <TextInput
+                  ref={textRef}
+                  value={pageText(activePage)}
+                  onChangeText={updatePageText}
+                  multiline
+                  textAlignVertical="top"
+                  style={styles.pageTextInput}
+                  placeholderTextColor={theme.subtext}
+                />
+              </View>
             ) : (
               <View style={styles.listEmpty}>
                 <Text style={styles.listEmptyTitle}>
@@ -1117,79 +1145,6 @@ export default function OcrScreen({
   );
 }
 
-/* ------------------------------- 文本行 ------------------------------- */
-
-type LineRowProps = {
-  line: OcrLine;
-  index: number;
-  selected: boolean;
-  onLayout: (y: number) => void;
-  onChangeText: (text: string) => void;
-  onFocus: () => void;
-  onRevert: () => void;
-  revertLabel: string;
-  editedLabel: string;
-  lowLabel: string;
-};
-
-function LineRow({
-  line,
-  index,
-  selected,
-  onLayout,
-  onChangeText,
-  onFocus,
-  onRevert,
-  revertLabel,
-  editedLabel,
-  lowLabel,
-}: LineRowProps) {
-  const edited = isLineEdited(line);
-  const low = isLowConfidence(line);
-  return (
-    <View
-      onLayout={(event) => onLayout(event.nativeEvent.layout.y)}
-      style={[
-        styles.lineRow,
-        selected && styles.lineRowSelected,
-        low && !selected && styles.lineRowLow,
-      ]}
-    >
-      <Text style={styles.lineIndex}>{index + 1}</Text>
-      <View style={styles.lineBody}>
-        <TextInput
-          value={line.text}
-          onChangeText={onChangeText}
-          onFocus={onFocus}
-          multiline
-          style={styles.lineInput}
-          placeholderTextColor={theme.subtext}
-        />
-        {(low || edited) && (
-          <View style={styles.lineTags}>
-            {low && (
-              <Text style={styles.lineTagLow} numberOfLines={1}>
-                {lowLabel} · {Math.round(line.score * 100)}%
-              </Text>
-            )}
-            {edited && <Text style={styles.lineTagEdited}>{editedLabel}</Text>}
-          </View>
-        )}
-      </View>
-      {edited && (
-        <Pressable
-          onPress={onRevert}
-          hitSlop={8}
-          accessibilityLabel={revertLabel}
-          style={styles.revertBtn}
-        >
-          <Ionicons name="refresh-outline" size={16} color={theme.subtext} />
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.ink },
 
@@ -1316,6 +1271,8 @@ const styles = StyleSheet.create({
     minHeight: 180,
     backgroundColor: '#0b0d12',
   },
+  // 键盘弹出时图片只留一条，文本框能占满剩余空间
+  imagePaneCompact: { flex: 0, height: 132, minHeight: 0 },
   resultImage: { position: 'absolute' },
   resultImageLoading: {
     left: 0,
@@ -1369,47 +1326,23 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     marginTop: -12,
-    overflow: 'hidden',
+    padding: 12,
   },
-  lineList: { flex: 1 },
-  lineListContent: { padding: 12, paddingBottom: 24 },
-  lineRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    marginBottom: 4,
+  textCard: {
+    flex: 1,
     backgroundColor: theme.surface,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  lineRowSelected: {
-    borderColor: theme.primary,
-    backgroundColor: '#eef3ff',
-  },
-  lineRowLow: { borderColor: '#ffd9a8' },
-  lineIndex: {
-    width: 20,
-    textAlign: 'right',
-    fontSize: 11,
-    color: theme.subtext,
-    marginTop: 3,
-  },
-  lineBody: { flex: 1 },
-  lineInput: {
+  pageTextInput: {
+    flex: 1,
     color: theme.text,
     fontSize: 15,
-    lineHeight: 21,
+    lineHeight: 23,
     padding: 0,
     margin: 0,
-    minHeight: 22,
   },
-  lineTags: { flexDirection: 'row', gap: 8, marginTop: 3 },
-  lineTagLow: { fontSize: 10, color: '#c27400' },
-  lineTagEdited: { fontSize: 10, color: theme.primary },
-  revertBtn: { paddingTop: 3 },
   listEmpty: {
     flex: 1,
     alignItems: 'center',

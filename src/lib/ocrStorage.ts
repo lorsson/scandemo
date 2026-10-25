@@ -62,15 +62,26 @@ export async function importOcrPage(
   return { uri: target, width, height };
 }
 
-/** 裁剪结果是缓存里的临时文件：拷进会话目录后替换页面图 */
+/**
+ * 裁剪结果是缓存里的临时文件：拷进会话目录后替换页面图。
+ *
+ * 每次换新文件名：RN Image 按 uri 缓存位图，同名覆盖会让界面继续显示旧图
+ * （渲染用缓存图、识别读新文件，文本框就对不上）。旧文件顺手删掉。
+ */
 export async function replaceOcrPage(
   tempUri: string,
   sessionId: string,
   index: number,
+  previousUri?: string,
 ): Promise<{ uri: string; width: number; height: number }> {
   const dir = await ensureOcrSession(sessionId);
-  const target = `${dir}page-${index}.jpg`;
+  const target = `${dir}page-${index}-${Date.now().toString(36)}.jpg`;
   await copyInto(tempUri, target);
+  if (previousUri && previousUri !== target) {
+    await FileSystem.deleteAsync(previousUri, { idempotent: true }).catch(
+      () => {},
+    );
+  }
   const { width, height } = await getImageSize(target);
   return { uri: target, width, height };
 }

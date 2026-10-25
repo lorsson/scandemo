@@ -53,6 +53,20 @@ export type NativeDetection = {
   confidence: number;
 };
 
+/** 端侧 OCR 的一行：points 是 4 个「位图像素」坐标，顺序 TL,TR,BR,BL */
+export type NativeOcrLine = {
+  points: number[][];
+  text: string;
+  score: number;
+};
+
+/** 端侧 OCR 结果；width/height 是识别所用位图的尺寸，用于把 points 归一化 */
+export type NativeOcrResult = {
+  width: number;
+  height: number;
+  lines: NativeOcrLine[];
+};
+
 /** 实时取景事件：quad 是 8 个「预览视图」归一化坐标 TL,TR,BR,BL */
 export type LiveQuadPayload = {
   detected: boolean;
@@ -83,6 +97,9 @@ type ImageCoreNativeModule = {
   isCameraAvailable?(): boolean;
   /** 端侧文档四角检测；path 不带 file://（Android DocCornerNet / iOS Vision） */
   detectFile?(path: string): Promise<NativeDetection | null>;
+  /** 端侧文字识别（Android PP-OCRv4 ONNX）；path 不带 file:// */
+  ocrFile?(path: string): Promise<NativeOcrResult>;
+  isOcrAvailable?(): boolean;
   /** 按 EXIF 转正后的像素尺寸；path 不带 file:// */
   imageSize?(path: string): Promise<{ width: number; height: number }>;
   processFile(
@@ -175,6 +192,23 @@ export async function detectFileWithNative(
     throw loadError ?? new Error('ImageCore 原生模块不支持文档检测');
   }
   return nativeModule.detectFile(path);
+}
+
+/** 原生库是否带端侧文字识别（Android PP-OCRv4） */
+export function isNativeOcrAvailable(): boolean {
+  return (
+    typeof nativeModule?.ocrFile === 'function' &&
+    typeof nativeModule?.isOcrAvailable === 'function' &&
+    nativeModule.isOcrAvailable() === true
+  );
+}
+
+/** 端侧文字识别；path 不带 file://。points 是位图像素坐标 */
+export async function ocrFileWithNative(path: string): Promise<NativeOcrResult> {
+  if (!nativeModule?.ocrFile) {
+    throw loadError ?? new Error('ImageCore 原生模块不支持文字识别');
+  }
+  return nativeModule.ocrFile(path);
 }
 
 /** 原生库是否能按 EXIF 转正读尺寸 */

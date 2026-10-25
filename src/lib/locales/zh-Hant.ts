@@ -103,7 +103,7 @@ const zhHant: Record<MessageKey, string> = {
   ocrHint: '提取圖片中的文字',
   soonTag: '即將推出',
   toolsFooter:
-    '所有處理都在本機完成；只有設定了辨識服務並點「裁切」時，目前圖片才會傳給該服務。',
+    '所有處理都在本機完成；只有點「裁切」或端側文字辨識不可用時，目前圖片才會傳給你設定的辨識服務。',
 
   // ---- 我的 ----
   nativeEngine: '原生 C++',
@@ -260,10 +260,10 @@ const zhHant: Record<MessageKey, string> = {
   ocrCropFailedTitle: '裁切失敗',
   ocrNeedsServerTitle: '尚未設定文字辨識服務',
   ocrNeedsServerBody:
-    '請先在「我的」填寫文件辨識服務位址，圖片會上傳到該服務辨識文字。',
+    '目前裝置不支援端側文字辨識。請先在「我的」填寫文件辨識服務位址，圖片會上傳到該服務辨識文字。',
   ocrFailedTitle: '辨識失敗',
-  ocrFailedBody_one: '{count} 頁辨識失敗，請檢查服務後重試。',
-  ocrFailedBody_other: '{count} 頁辨識失敗，請檢查服務後重試。',
+  ocrFailedBody_one: '{count} 頁辨識失敗，請重試。',
+  ocrFailedBody_other: '{count} 頁辨識失敗，請重試。',
   ocrNoTextPage: '這一頁沒有偵測到文字。',
   ocrNoText: '還沒有可複製的內容。',
   ocrCopied: '已複製到剪貼簿',

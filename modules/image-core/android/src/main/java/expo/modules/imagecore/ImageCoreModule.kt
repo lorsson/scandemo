@@ -294,6 +294,15 @@ class ImageCoreModule : Module() {
       }
     }
 
+    // 端侧 PP-OCRv4 文字识别：path 不带 file://，points 是位图像素坐标（TL,TR,BR,BL）
+    AsyncFunction("ocrFile") { path: String ->
+      val reactContext = appContext.reactContext
+        ?: throw IllegalStateException("React context 不可用")
+      PpOcrEngine.recognizeFile(reactContext, path)
+    }
+
+    Function("isOcrAvailable") { true }
+
     // JS 侧需要同步判断能否渲染原生取景组件（启动时就要决定）
     Function("isCameraAvailable") { true }
 

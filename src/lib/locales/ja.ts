@@ -100,7 +100,7 @@ const ja: Record<MessageKey, string> = {
   ocrHint: '画像からテキストを抽出',
   soonTag: '近日公開',
   toolsFooter:
-    'すべての処理はこの端末で行われます。画像は、設定した検出サーバーに「切り抜き」を押したときだけ送信されます。',
+    'すべての処理はこの端末で行われます。画像が設定したサーバーに送信されるのは、「切り抜き」を押したとき、または端末内の文字認識が使えないときだけです。',
 
   nativeEngine: 'ネイティブC++',
   canvasEngine: 'WebView Canvas',
@@ -260,12 +260,10 @@ const ja: Record<MessageKey, string> = {
   ocrCropFailedTitle: 'トリミングに失敗しました',
   ocrNeedsServerTitle: '文字認識サービスが未設定です',
   ocrNeedsServerBody:
-    '先に「プロフィール」で書類サービスのアドレスを設定してください。ページはそのサーバーに送信されて認識されます。',
+    'この端末では端末内の文字認識を利用できません。先に「プロフィール」で書類サービスのアドレスを設定してください。ページはそのサーバーに送信されて認識されます。',
   ocrFailedTitle: '認識に失敗しました',
-  ocrFailedBody_one:
-    '{count} ページを認識できませんでした。サーバーを確認して再試行してください。',
-  ocrFailedBody_other:
-    '{count} ページを認識できませんでした。サーバーを確認して再試行してください。',
+  ocrFailedBody_one: '{count} ページを認識できませんでした。再試行してください。',
+  ocrFailedBody_other: '{count} ページを認識できませんでした。再試行してください。',
   ocrNoTextPage: 'このページには文字が見つかりませんでした。',
   ocrNoText: 'コピーする内容がまだありません。',
   ocrCopied: 'クリップボードにコピーしました',
