@@ -197,6 +197,8 @@ const pt: Record<MessageKey, string> = {
   deleteOrRetakeBody:
     'Excluir esta página ou repetir a captura para substituir a foto?',
   retakeThisPageAction: 'Repetir página',
+  reselectThisPageAction: 'Escolher outra página',
+  cancelThisPageAction: 'Cancelar esta página',
   deleteThisPageAction: 'Excluir página',
   invalidAreaTitle: 'Seleção inválida',
   convexQuadBody:
@@ -211,6 +213,12 @@ const pt: Record<MessageKey, string> = {
   shareUnavailableTitle: 'Compartilhamento indisponível',
   shareUnavailableBody: 'Este dispositivo não aceita a folha de compartilhamento do sistema.',
   shareSheetFailed: 'Não foi possível abrir a folha de compartilhamento',
+  shareOptionsBody:
+    'Compartilhe a imagem atual, esta página em PDF ou o documento inteiro.',
+  shareThisImage: 'Compartilhar esta imagem',
+  shareThisPage: 'Compartilhar esta página',
+  shareDocument: 'Compartilhar documento',
+  shareImageFailed: 'Não foi possível compartilhar a imagem',
   pdfCreateFailed: 'Não foi possível criar o PDF',
   docNamePlaceholder: 'Nome do PDF',
   pdfNameA11y: 'Nome do documento PDF',
@@ -252,8 +260,17 @@ const pt: Record<MessageKey, string> = {
   saveAsPdf: 'Salvar como PDF',
   pdfSavedTitle: 'PDF salvo',
   pdfSavedBody: '{name} foi salvo na pasta que você escolheu.',
+  pdfSavedToAppBody: '{name} foi salvo no aplicativo.\n{path}',
+  saveToPhoneFolder: 'Salvar no telefone…',
   pdfReadyPath: 'Local do arquivo: {path}',
+  overwritePdfTitle: 'O arquivo já existe',
+  overwritePdfBody:
+    '{name} já existe nessa pasta. Substituir?',
+  replaceFileAction: 'Substituir',
   savePdfFailedTitle: 'Não foi possível salvar o PDF',
+  savePdfFolderBlocked:
+    'Não é possível gravar nessa pasta: o serviço de arquivos do sistema retornou um erro. Escolha outra pasta (por exemplo “Documentos” ou o armazenamento interno) e tente novamente.',
+  chooseAnotherFolder: 'Escolher outra pasta',
   busyTitle: 'Ainda trabalhando',
   busyBody: 'A operação atual ainda não terminou.',
   keepWaiting: 'Continuar esperando',
@@ -262,6 +279,8 @@ const pt: Record<MessageKey, string> = {
   discardEditsBody_one: 'A página importada não será salva.',
   discardEditsBody_other: '{count} páginas importadas não serão salvas.',
   keepEditing: 'Continuar editando',
+  exitEdit: 'Sair',
+  exitEditingAction: 'Sair da edição',
   pickerAddTitle: 'Adicionar imagens',
 
   // ---- 单页编辑器 ----

@@ -187,6 +187,8 @@ const de: Record<MessageKey, string> = {
   deleteOrRetakeBody:
     'Diese Seite löschen oder neu aufnehmen, um das Foto zu ersetzen?',
   retakeThisPageAction: 'Seite neu aufnehmen',
+  reselectThisPageAction: 'Andere Seite wählen',
+  cancelThisPageAction: 'Seite abbrechen',
   deleteThisPageAction: 'Seite löschen',
   invalidAreaTitle: 'Ungültige Auswahl',
   convexQuadBody:
@@ -201,6 +203,12 @@ const de: Record<MessageKey, string> = {
   shareUnavailableTitle: 'Teilen nicht verfügbar',
   shareUnavailableBody: 'Dieses Gerät unterstützt das System-Teilungsblatt nicht.',
   shareSheetFailed: 'Teilungsblatt konnte nicht geöffnet werden',
+  shareOptionsBody:
+    'Das aktuelle Bild, diese Seite als PDF oder das ganze Dokument teilen.',
+  shareThisImage: 'Dieses Bild teilen',
+  shareThisPage: 'Diese Seite teilen',
+  shareDocument: 'Dokument teilen',
+  shareImageFailed: 'Bild konnte nicht geteilt werden',
   pdfCreateFailed: 'PDF konnte nicht erstellt werden',
   docNamePlaceholder: 'PDF-Name',
   pdfNameA11y: 'Name des PDF-Dokuments',
@@ -242,8 +250,17 @@ const de: Record<MessageKey, string> = {
   saveAsPdf: 'Als PDF speichern',
   pdfSavedTitle: 'PDF gespeichert',
   pdfSavedBody: '{name} wurde im von dir gewählten Ordner gespeichert.',
+  pdfSavedToAppBody: '{name} wurde in der App gespeichert.\n{path}',
+  saveToPhoneFolder: 'Auf dem Gerät speichern…',
   pdfReadyPath: 'Dateispeicherort: {path}',
+  overwritePdfTitle: 'Datei existiert bereits',
+  overwritePdfBody:
+    'Im gewählten Ordner gibt es bereits {name}. Ersetzen?',
+  replaceFileAction: 'Ersetzen',
   savePdfFailedTitle: 'PDF konnte nicht gespeichert werden',
+  savePdfFolderBlocked:
+    'Dieser Ordner ist nicht beschreibbar – der Systemdateidienst hat einen Fehler gemeldet. Bitte einen anderen Ordner (z. B. „Dokumente“ oder den internen Speicher) wählen und erneut versuchen.',
+  chooseAnotherFolder: 'Anderen Ordner wählen',
   busyTitle: 'Noch in Arbeit',
   busyBody: 'Der aktuelle Vorgang ist noch nicht abgeschlossen.',
   keepWaiting: 'Weiter warten',
@@ -252,6 +269,8 @@ const de: Record<MessageKey, string> = {
   discardEditsBody_one: 'Die importierte Seite wird nicht gespeichert.',
   discardEditsBody_other: '{count} importierte Seiten werden nicht gespeichert.',
   keepEditing: 'Weiter bearbeiten',
+  exitEdit: 'Beenden',
+  exitEditingAction: 'Bearbeitung beenden',
   pickerAddTitle: 'Bilder hinzufügen',
 
   imageReadFailedShort: 'Bild konnte nicht gelesen werden',

@@ -35,6 +35,7 @@ import CropLoupe, {
   LOUPE_DISTANCE,
   LOUPE_SIZE,
 } from '../components/CropLoupe';
+import CameraScreen from './CameraScreen';
 import PhotoPickerScreen from './PhotoPickerScreen';
 import { isNativeGeometryAvailable } from '../../modules/image-core';
 import { isAbortError, throwIfAborted } from '../lib/abort';
@@ -83,7 +84,7 @@ import { deletePageFiles } from '../lib/pageStore';
 import { renderPageBase64 } from '../lib/pageRender';
 import { generatePdf } from '../lib/pdf';
 import { getPdfLimits } from '../lib/pdfLimits';
-import { pdfFileName, savePdfToUser } from '../lib/savePdf';
+import { exportPdfToUser, pdfFileName, savePdfToUser } from '../lib/savePdf';
 import {
   SCAN_MAX_DIM,
   importScanPages,
@@ -170,8 +171,10 @@ export default function ScanEditorScreen({
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
-  /** 相册选择器的用途：追加页 / 重拍当前页 */
+  /** 相册选择器的用途：追加页 / 重选当前页 */
   const [pickerMode, setPickerMode] = useState<'add' | 'replace' | null>(null);
+  /** 重拍当前页：编辑器内直接拉起相机，拍完替换这一页 */
+  const [cameraMode, setCameraMode] = useState(false);
 
   /** 算法是否应用到所有页（默认勾选） */
   const [applyAll, setApplyAll] = useState(true);
@@ -930,7 +933,10 @@ export default function ScanEditorScreen({
     [begin, closeCrop, commit, draftId, end, invalidatePageCache, t],
   );
 
-  /** 图片右上角的删除：三选一 —— 删除此页 / 重拍此页 / 取消 */
+  /**
+   * 图片右上角的删除：四选一 ——
+   * 取消此页（什么都不做）/ 重拍此页（相机）/ 重选此页（相册）/ 删除此页。
+   */
   const handleRemove = useCallback(() => {
     if (running.current) return;
     const index = activeRef.current;
@@ -940,9 +946,13 @@ export default function ScanEditorScreen({
       t('pageN', { n: index + 1 }),
       t('deleteOrRetakeBody'),
       [
-        { text: t('cancel'), style: 'cancel' },
+        { text: t('cancelThisPageAction'), style: 'cancel' },
         {
           text: t('retakeThisPageAction'),
+          onPress: () => setCameraMode(true),
+        },
+        {
+          text: t('reselectThisPageAction'),
           onPress: () => setPickerMode('replace'),
         },
         {
@@ -1224,17 +1234,19 @@ export default function ScanEditorScreen({
   };
 
   /**
-   * 生成整份 PDF，返回沙盒文件路径。
+   * 生成指定页面的 PDF，返回沙盒文件路径。
+   * `name` 同时是沙盒文件名和保存/分享时显示的文件名。
    * 生成失败（含用户取消）返回 null；忙碌态在返回前已经结束。
    */
-  const buildPdf = async (): Promise<string | null> => {
-    const list = pagesRef.current;
+  const buildPdf = async (
+    list: DocPage[],
+    name: string,
+  ): Promise<string | null> => {
     if (!list.length || running.current) return null;
     const controller = new AbortController();
     abortRef.current = controller;
     begin({ kind: 'pdf', done: 0, total: list.length });
-    // 沙盒里的文件名直接用作保存 / 分享时的文件名
-    const out = `${scanProjectDir(draftId)}${pdfFileName(docTitle)}`;
+    const out = `${scanProjectDir(draftId)}${pdfFileName(name)}`;
     try {
       await generatePdf(
         list.map((page) => page.uri),
@@ -1260,28 +1272,144 @@ export default function ScanEditorScreen({
     }
   };
 
-  /** 顶部右侧「分享」：生成后直接拉起系统分享面板 */
-  const handleSharePdf = async () => {
-    const out = await buildPdf();
+  /** 分享当前页的图片（已经套好算法/微调的那一版） */
+  const shareCurrentImage = async () => {
+    const page = pagesRef.current[activeRef.current];
+    if (!page) return;
+    try {
+      const available = await Sharing.isAvailableAsync();
+      if (!available) {
+        Alert.alert(
+          t('shareUnavailableTitle'),
+          t('shareUnavailableBody'),
+          [{ text: t('ok'), style: 'cancel' }],
+        );
+        return;
+      }
+      await Sharing.shareAsync(page.uri, {
+        mimeType: 'image/jpeg',
+        UTI: 'public.jpeg',
+        dialogTitle: docTitle,
+      });
+    } catch (e) {
+      Alert.alert(
+        t('shareImageFailed'),
+        (e as Error)?.message ?? t('unknownError'),
+      );
+    }
+  };
+
+  /** 分享当前页：只把这一页转成 PDF */
+  const shareCurrentPage = async () => {
+    const page = pagesRef.current[activeRef.current];
+    if (!page) return;
+    const out = await buildPdf(
+      [page],
+      `${docTitle}-${activeRef.current + 1}`,
+    );
     if (out) await sharePdf(out);
   };
 
-  /** 底部「保存成 PDF」：生成后弹系统保存框，让用户选保存位置 */
-  const handleSavePdf = async () => {
-    const out = await buildPdf();
-    if (!out) return;
+  /** 分享整份文档 */
+  const shareWholeDocument = async () => {
+    const out = await buildPdf(pagesRef.current, docTitle);
+    if (out) await sharePdf(out);
+  };
+
+  /** 顶部右侧「分享」：先选分享图片 / 当前页 PDF / 整份文档 */
+  const handleSharePress = () => {
+    const list = pagesRef.current;
+    if (running.current || !list.length) return;
+    const options = [
+      { text: t('cancel'), style: 'cancel' as const },
+      { text: t('shareThisImage'), onPress: () => void shareCurrentImage() },
+      { text: t('shareThisPage'), onPress: () => void shareCurrentPage() },
+    ];
+    // 只有一页时「此页」就是整份文档，不再单列「分享文档」
+    if (list.length > 1) {
+      options.push({
+        text: t('shareDocument'),
+        onPress: () => void shareWholeDocument(),
+      });
+    }
+    Alert.alert(t('share'), t('shareOptionsBody'), options);
+  };
+
+  /** 另存到手机存储：系统文件夹选择器；选中目录里已有同名文件先问是否替换 */
+  const exportPdf = async (out: string) => {
     const name = pdfFileName(docTitle);
     try {
-      const outcome = await savePdfToUser(out);
-      if (outcome === 'saved') {
+      const outcome = await exportPdfToUser(out, {
+        onConflict: (conflictName) =>
+          new Promise<boolean>((resolve) => {
+            Alert.alert(
+              t('overwritePdfTitle'),
+              t('overwritePdfBody', { name: conflictName }),
+              [
+                {
+                  text: t('cancel'),
+                  style: 'cancel',
+                  onPress: () => resolve(false),
+                },
+                {
+                  text: t('replaceFileAction'),
+                  style: 'destructive',
+                  onPress: () => resolve(true),
+                },
+              ],
+              { cancelable: true, onDismiss: () => resolve(false) },
+            );
+          }),
+      });
+      if (outcome.status === 'exported') {
         Alert.alert(t('pdfSavedTitle'), t('pdfSavedBody', { name }), [
           { text: t('done'), style: 'cancel' },
           { text: t('share'), onPress: () => void sharePdf(out) },
         ]);
-      } else if (outcome === 'unavailable') {
+      }
+    } catch (e) {
+      // 系统 provider 写不进去（例如某些机型的「下载」目录），让用户直接换个文件夹。
+      // 原始异常只留在日志里：它通常是 Java 栈信息，对用户没有意义。
+      console.warn('[savePdf] export failed', e);
+      Alert.alert(t('savePdfFailedTitle'), t('savePdfFolderBlocked'), [
+        { text: t('cancel'), style: 'cancel' },
+        {
+          text: t('chooseAnotherFolder'),
+          onPress: () => void exportPdf(out),
+        },
+      ]);
+    }
+  };
+
+  /**
+   * 底部「保存成 PDF」：生成后直接存进 App 自己的 PDF 目录。
+   * 不弹系统文件夹选择器、不弹覆盖确认——同名文件直接覆盖。
+   * 想把文件放到手机里时，结果弹窗里还有「另存到手机…」。
+   */
+  const handleSavePdf = async () => {
+    const out = await buildPdf(pagesRef.current, docTitle);
+    if (!out) return;
+    const name = pdfFileName(docTitle);
+    try {
+      const outcome = await savePdfToUser(out);
+      if (outcome.status === 'saved') {
+        Alert.alert(
+          t('pdfSavedTitle'),
+          t('pdfSavedToAppBody', { name, path: outcome.path }),
+          [
+            { text: t('done'), style: 'cancel' },
+            { text: t('share'), onPress: () => void sharePdf(out) },
+            {
+              text: t('saveToPhoneFolder'),
+              onPress: () => void exportPdf(out),
+            },
+          ],
+        );
+      } else if (outcome.status === 'unavailable') {
         Alert.alert(t('pdfCreatedTitle'), t('pdfReadyPath', { path: out }));
       }
     } catch (e) {
+      console.warn('[savePdf] failed', e);
       Alert.alert(
         t('savePdfFailedTitle'),
         (e as Error)?.message ?? t('unknownError'),
@@ -1313,14 +1441,18 @@ export default function ScanEditorScreen({
       tp('discardEditsBody', pagesRef.current.length),
       [
         { text: t('keepEditing'), style: 'cancel' },
-        { text: t('back'), style: 'destructive', onPress: onCancel },
+        { text: t('exitEditingAction'), style: 'destructive', onPress: onCancel },
       ],
     );
   }, [onCancel, t, tp]);
 
-  // 安卓返回键等同「返回」；改标题时先收起键盘，裁剪模式下先退出裁剪
+  // 安卓返回键等同「退出」；改标题时先收起键盘，裁剪/相机模式下先退出那一层
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (cameraMode) {
+        setCameraMode(false);
+        return true;
+      }
       if (titleInputRef.current?.isFocused()) {
         titleInputRef.current.blur();
         return true;
@@ -1337,7 +1469,7 @@ export default function ScanEditorScreen({
       return true;
     });
     return () => sub.remove();
-  }, [adjustOpen, closeAdjust, closeCrop, cropMode, handleCancel]);
+  }, [adjustOpen, cameraMode, closeAdjust, closeCrop, cropMode, handleCancel]);
 
   /** 左右滑动翻页；裁剪 / 处理中不抢手势，避免和拖点冲突 */
   const swipe = useMemo(
@@ -1487,7 +1619,7 @@ export default function ScanEditorScreen({
     <View style={styles.root}>
       <View style={[styles.topBar, { paddingTop: 12 + insets.top }]}>
         <Pressable hitSlop={12} onPress={handleCancel} style={styles.topBtn}>
-          <Text style={styles.topBtnText}>{t('back')}</Text>
+          <Text style={styles.topBtnText}>{t('exitEdit')}</Text>
         </Pressable>
         <TextInput
           ref={titleInputRef}
@@ -1504,7 +1636,7 @@ export default function ScanEditorScreen({
         />
         <Pressable
           hitSlop={12}
-          onPress={() => void handleSharePdf()}
+          onPress={handleSharePress}
           style={styles.topBtn}
           disabled={busy !== null || pages.length === 0}
         >
@@ -1986,6 +2118,23 @@ export default function ScanEditorScreen({
           </>
         )}
       </View>
+
+      {/* 重拍此页：编辑器内直接拉起相机，拍完替换当前页 */}
+      {cameraMode && (
+        <View style={StyleSheet.absoluteFill}>
+          <CameraScreen
+            onCaptured={(uri) => {
+              setCameraMode(false);
+              void handleReplacePage(uri);
+            }}
+            onCancel={() => setCameraMode(false)}
+            onPickGallery={() => {
+              setCameraMode(false);
+              setPickerMode('replace');
+            }}
+          />
+        </View>
+      )}
 
       {pickerMode !== null && (
         <View style={StyleSheet.absoluteFill}>

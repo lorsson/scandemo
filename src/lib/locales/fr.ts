@@ -187,6 +187,8 @@ const fr: Record<MessageKey, string> = {
   deleteOrRetakeBody:
     'Supprimer cette page, ou la reprendre pour remplacer la photo ?',
   retakeThisPageAction: 'Reprendre la page',
+  reselectThisPageAction: 'Choisir une autre page',
+  cancelThisPageAction: 'Annuler cette page',
   deleteThisPageAction: 'Supprimer la page',
   invalidAreaTitle: 'Sélection invalide',
   convexQuadBody:
@@ -201,6 +203,12 @@ const fr: Record<MessageKey, string> = {
   shareUnavailableTitle: 'Partage indisponible',
   shareUnavailableBody: 'Cet appareil ne prend pas en charge la feuille de partage du système.',
   shareSheetFailed: 'Impossible d’ouvrir la feuille de partage',
+  shareOptionsBody:
+    'Partagez l’image actuelle, cette page en PDF ou tout le document.',
+  shareThisImage: 'Partager cette image',
+  shareThisPage: 'Partager cette page',
+  shareDocument: 'Partager le document',
+  shareImageFailed: 'Impossible de partager l’image',
   pdfCreateFailed: 'Impossible de créer le PDF',
   docNamePlaceholder: 'Nom du PDF',
   pdfNameA11y: 'Nom du document PDF',
@@ -242,8 +250,17 @@ const fr: Record<MessageKey, string> = {
   saveAsPdf: 'Enregistrer au format PDF',
   pdfSavedTitle: 'PDF enregistré',
   pdfSavedBody: '{name} a été enregistré dans le dossier de votre choix.',
+  pdfSavedToAppBody: '{name} a été enregistré dans l’application.\n{path}',
+  saveToPhoneFolder: 'Enregistrer sur l’appareil…',
   pdfReadyPath: 'Emplacement du fichier : {path}',
+  overwritePdfTitle: 'Le fichier existe déjà',
+  overwritePdfBody:
+    '{name} existe déjà dans ce dossier. Le remplacer ?',
+  replaceFileAction: 'Remplacer',
   savePdfFailedTitle: 'Impossible d’enregistrer le PDF',
+  savePdfFolderBlocked:
+    'Impossible d’écrire dans ce dossier : le service de fichiers du système a renvoyé une erreur. Choisissez un autre dossier (par exemple « Documents » ou le stockage interne) et réessayez.',
+  chooseAnotherFolder: 'Choisir un autre dossier',
   busyTitle: 'Encore en cours',
   busyBody: 'L’opération en cours n’est pas encore terminée.',
   keepWaiting: 'Continuer à attendre',
@@ -252,6 +269,8 @@ const fr: Record<MessageKey, string> = {
   discardEditsBody_one: 'La page importée ne sera pas enregistrée.',
   discardEditsBody_other: '{count} pages importées ne seront pas enregistrées.',
   keepEditing: 'Continuer la modification',
+  exitEdit: 'Quitter',
+  exitEditingAction: 'Quitter la modification',
   pickerAddTitle: 'Ajouter des images',
 
   imageReadFailedShort: 'Impossible de lire l’image',
