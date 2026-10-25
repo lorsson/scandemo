@@ -1,5 +1,5 @@
 import { memo, useCallback, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import type { OcrLine } from '../lib/ocr';
 
@@ -8,29 +8,22 @@ import type { OcrLine } from '../lib/ocr';
  *
  * 用的是「绝对定位 View + rotate」而不是 SVG——项目里没有
  * react-native-svg，CropOverlay / LiveQuadOverlay 也是同一套做法。
- * 每个框同时是一个可点的热区（按外接矩形放大到至少 22pt），
- * 点一下就把对应的文本行选中并滚到可见。
+ *
+ * 只负责画，不接手势：图片放大后框会超出画布，绝对定位子视图在 Android 上
+ * 依然能吃到画布外的点击，会和下面的文本框抢触摸。点选框由结果页在图片区
+ * 那一层统一做命中判断（只会命中可见区域内的点）。
  */
 
 type Props = {
   lines: OcrLine[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
   lowConfidenceIds?: Set<string>;
-  /** 点选后高亮的框保留多久由父级控制；这里只负责样式 */
 };
 
 const ACCENT = '#2f6bff';
 const LOW = '#ff8f0a';
-/** 文本框最细的可点高度：细行也能点中 */
-const MIN_TOUCH_HEIGHT = 22;
 
-function OcrBoxOverlay({
-  lines,
-  selectedId,
-  onSelect,
-  lowConfidenceIds,
-}: Props) {
+function OcrBoxOverlay({ lines, selectedId, lowConfidenceIds }: Props) {
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   const onLayout = useCallback(
@@ -46,7 +39,7 @@ function OcrBoxOverlay({
   );
 
   return (
-    <View style={StyleSheet.absoluteFill} onLayout={onLayout} pointerEvents="box-none">
+    <View style={StyleSheet.absoluteFill} onLayout={onLayout} pointerEvents="none">
       {size.width > 0 &&
         lines.map((line) => {
           const a = line.box[0];
@@ -77,21 +70,17 @@ function OcrBoxOverlay({
 
           const selected = selectedId === line.id;
           const low = lowConfidenceIds?.has(line.id) ?? false;
-          const touchHeight = Math.max(height, MIN_TOUCH_HEIGHT);
 
           return (
-            <Pressable
+            <View
               key={line.id}
-              accessibilityRole="button"
-              accessibilityLabel={line.text}
-              onPress={() => onSelect(line.id)}
               style={[
                 styles.box,
                 {
                   width,
-                  height: touchHeight,
+                  height,
                   left: centerX - width / 2,
-                  top: centerY - touchHeight / 2,
+                  top: centerY - height / 2,
                   transform: [{ rotate: `${angle}rad` }],
                 },
                 selected && styles.boxSelected,
@@ -99,15 +88,14 @@ function OcrBoxOverlay({
               ]}
             >
               <View
-                pointerEvents="none"
                 style={[
                   styles.outline,
-                  { height: Math.max(height, 2) },
+                  { height },
                   selected && styles.outlineSelected,
                   low && !selected && styles.outlineLow,
                 ]}
               />
-            </Pressable>
+            </View>
           );
         })}
     </View>

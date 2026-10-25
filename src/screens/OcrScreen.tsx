@@ -19,6 +19,7 @@ import {
   Text,
   TextInput,
   View,
+  type GestureResponderEvent,
   type LayoutChangeEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,8 +50,10 @@ import { warpPerspective } from '../lib/imagePipeline';
 import {
   documentText,
   isLowConfidence,
+  lineBounds,
   ocrId,
   pageText,
+  readingRows,
   type OcrLine,
   type OcrPage,
 } from '../lib/ocr';
@@ -98,6 +101,9 @@ type Busy =
 /** 裁剪时图片四周留白：与扫描编辑器一致，贴边手柄也能按到 */
 const CROP_INSET = 22;
 
+/** 编辑文字时放大图片的上限：再大就糊了 */
+const MAX_ZOOM = 4;
+
 export default function OcrScreen({
   initialUris,
   autoStart = false,
@@ -122,8 +128,11 @@ export default function OcrScreen({
   const [notice, setNotice] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  /** 结果页编辑文字时键盘是否弹出：弹出时收窄图片区，给文本框让位置 */
   const [keyboardUp, setKeyboardUp] = useState(false);
+  /** 编辑时图片放大到光标所在的那一行；这里记光标在第几行（0 基） */
+  const [cursorRow, setCursorRow] = useState(0);
+  /** 点图片上的框后先看这一行，光标一动就交还给光标 */
+  const [pickedLineId, setPickedLineId] = useState<string | null>(null);
 
   // 裁剪
   const [cropPageId, setCropPageId] = useState<string | null>(null);
@@ -131,6 +140,8 @@ export default function OcrScreen({
   const [cropSize, setCropSize] = useState({ width: 0, height: 0 });
   const [cropStage, setCropStage] = useState({ width: 0, height: 0 });
   const [resultStage, setResultStage] = useState({ width: 0, height: 0 });
+  /** 结果页正文的高度：图片区按它算，键盘弹出后它会变小 */
+  const [bodyHeight, setBodyHeight] = useState(0);
 
   const abortRef = useRef<AbortController | null>(null);
   const startedRef = useRef(false);
@@ -455,6 +466,8 @@ export default function OcrScreen({
           error: undefined,
         }));
         setSelectedLineId(null);
+        setPickedLineId(null);
+        setCursorRow(0);
       } finally {
         await FileSystem.deleteAsync(warped, { idempotent: true }).catch(
           () => {},
@@ -504,16 +517,17 @@ export default function OcrScreen({
   // —— 图片框与文本框联动 ——
   const textRef = useRef<ComponentRef<typeof TextInput>>(null);
 
-  /** 点图片上的框：高亮它并聚焦文本框（光标位置按用户自己的操作走） */
+  /** 点图片上的框：高亮它并把图片放大到这一行（文字编辑交给下面的文本框） */
   const focusLine = useCallback((lineId: string) => {
     setSelectedLineId(lineId);
-    textRef.current?.focus();
+    setPickedLineId(lineId);
   }, []);
 
-  // 键盘弹出后可视区域变小：图片收成一条，把空间让给文本框
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => {
       setKeyboardUp(true);
+      // 开始编辑了：点选的框不再抢镜头，放大跟着光标走
+      setPickedLineId(null);
     });
     const hide = Keyboard.addListener('keyboardDidHide', () => {
       setKeyboardUp(false);
@@ -607,6 +621,138 @@ export default function OcrScreen({
       height,
     };
   }, [activePage, resultStage]);
+
+  /** 文本行分组：光标在第几行 ↔ 图片放大到哪一行，两边都按它算 */
+  const rows = useMemo(
+    () => (activePage ? readingRows(activePage.lines) : []),
+    [activePage],
+  );
+
+  /**
+   * 编辑时把光标所在的那一行放大后挪到图片区中央。
+   *
+   * 图片本身不缩小：以整页 contain 的尺寸为基准乘一个 ≥1 的倍数，超出画布的
+   * 部分裁掉。整行已经占满宽度（或页面本来就窄）时倍数为 1，就显示整页。
+   */
+  const zoomRect = useMemo(() => {
+    if (!activePage || !imageRect) return null;
+    if (!keyboardUp && !pickedLineId) return null;
+    if (!resultStage.width || !resultStage.height) return null;
+    if (rows.length === 0) return null;
+
+    const picked = pickedLineId
+      ? rows.find((row) => row.some((line) => line.id === pickedLineId))
+      : undefined;
+    const cursorLine = keyboardUp
+      ? rows[Math.min(cursorRow, rows.length - 1)]
+      : undefined;
+    const target = picked ?? cursorLine;
+    if (!target) return null;
+
+    let x0 = 1;
+    let y0 = 1;
+    let x1 = 0;
+    let y1 = 0;
+    for (const line of target) {
+      const bounds = lineBounds(line);
+      x0 = Math.min(x0, bounds.x0);
+      y0 = Math.min(y0, bounds.y0);
+      x1 = Math.max(x1, bounds.x1);
+      y1 = Math.max(y1, bounds.y1);
+    }
+    const bw = Math.max(x1 - x0, 0.02);
+    const bh = Math.max(y1 - y0, 0.01);
+    const fitX = (0.86 * resultStage.width) / (bw * imageRect.width);
+    const fitY = (0.72 * resultStage.height) / (bh * imageRect.height);
+    const scale = Math.min(MAX_ZOOM, Math.max(1, Math.min(fitX, fitY)));
+    // 本来就能看全，不用放大
+    if (scale < 1.05) return null;
+
+    const width = imageRect.width * scale;
+    const height = imageRect.height * scale;
+    // 目标框的中心对齐到画布中心；图片比画布大时再夹住，别把边缘拖进来露出空白
+    const centerX = resultStage.width / 2 - ((x0 + x1) / 2) * width;
+    const centerY = resultStage.height / 2 - ((y0 + y1) / 2) * height;
+    return {
+      x:
+        width >= resultStage.width
+          ? Math.min(0, Math.max(resultStage.width - width, centerX))
+          : (resultStage.width - width) / 2,
+      y:
+        height >= resultStage.height
+          ? Math.min(0, Math.max(resultStage.height - height, centerY))
+          : (resultStage.height - height) / 2,
+      width,
+      height,
+    };
+  }, [
+    activePage,
+    cursorRow,
+    imageRect,
+    keyboardUp,
+    pickedLineId,
+    resultStage,
+    rows,
+  ]);
+
+  /**
+   * 点图片区。
+   *
+   * 编辑中：只收键盘，放大继续跟着光标，别让点图片把光标位置弄丢。
+   * 没在编辑：点中哪个框就把图片放大到那一块（再看一眼原文），点空白回到整页。
+   */
+  const handleImagePress = useCallback(
+    (event: GestureResponderEvent) => {
+      if (keyboardUp) {
+        Keyboard.dismiss();
+        setPickedLineId(null);
+        setSelectedLineId(null);
+        return;
+      }
+      const rect = zoomRect ?? imageRect;
+      if (!activePage || !rect || rect.width <= 0 || rect.height <= 0) return;
+      const { locationX, locationY } = event.nativeEvent;
+      const nx = (locationX - rect.x) / rect.width;
+      const ny = (locationY - rect.y) / rect.height;
+      // 细行不好点，给 10dp 的余量（换算成归一化坐标）
+      const padX = 10 / rect.width;
+      const padY = 10 / rect.height;
+      let hit: OcrLine | null = null;
+      let hitArea = Infinity;
+      for (const line of activePage.lines) {
+        const bounds = lineBounds(line);
+        if (
+          nx < bounds.x0 - padX ||
+          nx > bounds.x1 + padX ||
+          ny < bounds.y0 - padY ||
+          ny > bounds.y1 + padY
+        ) {
+          continue;
+        }
+        // 框重叠时取更小的那个，表格里的窄框才点得准
+        const area = bounds.width * bounds.height;
+        if (area < hitArea) {
+          hitArea = area;
+          hit = line;
+        }
+      }
+      if (hit) {
+        focusLine(hit.id);
+      } else {
+        setSelectedLineId(null);
+        setPickedLineId(null);
+      }
+    },
+    [activePage, focusLine, imageRect, keyboardUp, zoomRect],
+  );
+
+  /**
+   * 高亮的框：点选的优先；编辑中就是光标所在的那一行，与图片放大的位置一致。
+   */
+  const highlightId =
+    pickedLineId ??
+    (keyboardUp ? rows[Math.min(cursorRow, rows.length - 1)]?.[0]?.id : null) ??
+    selectedLineId;
 
   const cropRect = useMemo(() => {
     if (!cropSize.width || !cropSize.height || !cropStage.width) return null;
@@ -730,6 +876,17 @@ export default function OcrScreen({
   if (mode === 'results') {
     const recognizing =
       activePage?.status === 'pending' || activePage?.status === 'running';
+    // 编辑时是放大后的取景框，否则是整页 contain
+    const rect = zoomRect ?? imageRect;
+    // 图片区高度按正文比例算：平时 58%，编辑时降到 44% 把位置让给文本框，
+    // 放大后的那一行在这块区域里仍然清楚。
+    const imagePaneStyle = bodyHeight
+      ? {
+          height: Math.max(180, bodyHeight * (keyboardUp ? 0.44 : 0.58)),
+          flexGrow: 0,
+          flexShrink: 1,
+        }
+      : { flexGrow: 1 };
     return (
       <KeyboardAvoidingView
         style={styles.root}
@@ -786,12 +943,17 @@ export default function OcrScreen({
           </View>
         </View>
 
-        <View style={styles.resultBody}>
+        <View
+          style={styles.resultBody}
+          onLayout={(event: LayoutChangeEvent) => {
+            const { height } = event.nativeEvent.layout;
+            setBodyHeight((prev) => (prev === height ? prev : height));
+          }}
+        >
           {/* 图片 + 文本框 */}
           <Pressable
-            style={[styles.imagePane, keyboardUp && styles.imagePaneCompact]}
-            // 点图片区（非文本框）收起键盘
-            onPress={Keyboard.dismiss}
+            style={[styles.imagePane, imagePaneStyle]}
+            onPress={handleImagePress}
             onLayout={(event: LayoutChangeEvent) => {
               const { width, height } = event.nativeEvent.layout;
               setResultStage((prev) =>
@@ -803,41 +965,44 @@ export default function OcrScreen({
           >
             {activePage ? (
               <View style={StyleSheet.absoluteFill}>
-                <Image
-                  source={{ uri: activePage.uri }}
-                  style={[
-                    styles.resultImage,
-                    imageRect
-                      ? {
-                          left: imageRect.x,
-                          top: imageRect.y,
-                          width: imageRect.width,
-                          height: imageRect.height,
-                        }
-                      : styles.resultImageLoading,
-                  ]}
-                  resizeMode="contain"
-                />
-                {activePage.status === 'done' && imageRect && (
-                  <View
+                {/* 图片和框都不接触摸：不然按下时 locationX 是相对图片的，
+                    命中判断算不准；交给外层 Pressable 统一处理 */}
+                <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                  <Image
+                    source={{ uri: activePage.uri }}
                     style={[
-                      styles.imageBox,
-                      {
-                        left: imageRect.x,
-                        top: imageRect.y,
-                        width: imageRect.width,
-                        height: imageRect.height,
-                      },
+                      styles.resultImage,
+                      rect
+                        ? {
+                            left: rect.x,
+                            top: rect.y,
+                            width: rect.width,
+                            height: rect.height,
+                          }
+                        : styles.resultImageLoading,
                     ]}
-                  >
-                    <OcrBoxOverlay
-                      lines={activePage.lines}
-                      selectedId={selectedLineId}
-                      lowConfidenceIds={lowConfidenceIds}
-                      onSelect={focusLine}
-                    />
-                  </View>
-                )}
+                    resizeMode="contain"
+                  />
+                  {activePage.status === 'done' && rect && (
+                    <View
+                      style={[
+                        styles.imageBox,
+                        {
+                          left: rect.x,
+                          top: rect.y,
+                          width: rect.width,
+                          height: rect.height,
+                        },
+                      ]}
+                    >
+                      <OcrBoxOverlay
+                        lines={activePage.lines}
+                        selectedId={highlightId}
+                        lowConfidenceIds={lowConfidenceIds}
+                      />
+                    </View>
+                  )}
+                </View>
                 {recognizing && (
                   <View style={styles.imageStatus}>
                     <ActivityIndicator color="#fff" />
@@ -883,6 +1048,8 @@ export default function OcrScreen({
                     if (prev) {
                       setActiveId(prev.id);
                       setSelectedLineId(null);
+                      setPickedLineId(null);
+                      setCursorRow(0);
                     }
                   }}
                   style={styles.pagerBtn}
@@ -907,6 +1074,8 @@ export default function OcrScreen({
                     if (next) {
                       setActiveId(next.id);
                       setSelectedLineId(null);
+                      setPickedLineId(null);
+                      setCursorRow(0);
                     }
                   }}
                   style={styles.pagerBtn}
@@ -939,6 +1108,21 @@ export default function OcrScreen({
                   textAlignVertical="top"
                   style={styles.pageTextInput}
                   placeholderTextColor={theme.subtext}
+                  // 光标挪到哪一行，图片就放大到哪一行。
+                  // 同时放下之前点选的框：收过键盘后输入框仍是聚焦状态，
+                  // onFocus 不会再触发，只靠它切换会一直停在旧框上。
+                  onSelectionChange={(event) => {
+                    const { start } = event.nativeEvent.selection;
+                    const text = pageText(activePage);
+                    let row = 0;
+                    for (let index = 0; index < start && index < text.length; index += 1) {
+                      if (text[index] === '\n') row += 1;
+                    }
+                    setCursorRow(row);
+                    setPickedLineId(null);
+                  }}
+                  // 开始改文字了：之前点选的框不再抢镜头，跟着光标走
+                  onFocus={() => setPickedLineId(null)}
                 />
               </View>
             ) : (
@@ -1266,13 +1450,12 @@ const styles = StyleSheet.create({
   startText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
   resultBody: { flex: 1 },
+  // 图片高度按测量到的可用高度算（见 imagePaneHeight），不用 flex 比例
   imagePane: {
-    flex: 1,
-    minHeight: 180,
     backgroundColor: '#0b0d12',
+    // 编辑时图片会放大、超出画布，裁掉多余部分
+    overflow: 'hidden',
   },
-  // 键盘弹出时图片只留一条，文本框能占满剩余空间
-  imagePaneCompact: { flex: 0, height: 132, minHeight: 0 },
   resultImage: { position: 'absolute' },
   resultImageLoading: {
     left: 0,
@@ -1321,7 +1504,9 @@ const styles = StyleSheet.create({
   pagerText: { color: '#fff', fontSize: 11 },
 
   listPane: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
     backgroundColor: theme.bg,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
