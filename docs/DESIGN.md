@@ -16,13 +16,15 @@
 4. **完整闭环**：拍照或批量导入 → 应用内相册选择（带序号/预览）→ 多页编辑
    （继续导入、排序、逐页滤镜）→ 保存 → 历史 → 逐页查看 / 导出到相册 / 删除。
 5. **图片转 PDF**：多选导入 → 排序 → 生成 → 分享；生成前后都能对单页做增强/旋转。
-6. **可验证**：每个平台都能在没有真机的条件下验证桥接与算法。
+6. **自动切边与取字**：导入/拍照后自动找四角并拉正（端侧模型），可再手动微调；
+   扫描页能端侧识别文字并按行编成可编辑的文本。
+7. **可验证**：每个平台都能在没有真机的条件下验证桥接与算法。
 
 ## 2. 非目标
 
-- 不实现文档边缘检测、透视校正、去阴影、去手写（四角检测/切边只预留接口与数据
-  结构，见 [EDGE_DETECTION.md](EDGE_DETECTION.md)）。
-- 不做 OCR、云端同步。
+- 不做云端同步：识别用的是端侧模型，只有在「我的」里配置了识别服务、并且手动点
+  「裁剪」或端侧 OCR 不可用时，才把当前图片发给该服务（见 §15.3）。
+- 手写去除已实现（按饱和度涂白），但批注仍未实现：字段已预留，渲染层待做。
 - 不做不限页数的 PDF：Android/iOS 已有原生 `createPdf`（逐页写、不占整份
   HTML），但页数上限仍沿用 `pdfLimits.ts` 的 15–60 页，暂不放开；Expo Go 的
   expo-print 兜底路径依旧受整份 HTML 进内存的限制。详见
@@ -49,7 +51,9 @@
 │                                                                    │
 │ pdf.ts：原生 createPdf（PdfDocument）→ document.pdf                │
 │         无原生库时回退：逐页 base64 → HTML → expo-print            │
-│ documentDetection.ts：ONNX 四角 / 切边（预留，未接原生）             │
+│ documentDetection.ts → nativeDocumentDetector.ts：端侧四角检测        │
+│ detectionServer.ts：配置了服务端时手动裁剪走 model_1228              │
+│ ocrLocal.ts / ocrServer.ts：端侧 PP-OCRv4 / Vision，兜底 /api/ocr    │
 └───────────────┬──────────────────────────────┬─────────────────────┘
                 │ Expo Modules API             │ postMessage / injectJS
 ┌───────────────▼──────────────┐   ┌───────────▼─────────────────────┐
@@ -96,7 +100,10 @@ ArkWeb(H5) ──javaScriptProxy──► Index.ets ──► ImageCoreService.e
 | PDF 存储 | `src/lib/pdfStorage.ts` | 项目目录、索引，页面文件委托给 `pageStore` |
 | 命名 / 时间 | `src/lib/format.ts` | 从 URI 推导文档名、列表时间格式 |
 | 裁剪组件 | `src/components/CropOverlay.tsx`、`CropLoupe.tsx` | 四角/四边手柄、就近抓取、放大镜 |
-| 切边接口 | `src/lib/documentDetection.ts` | ONNX 检测 / 批量 / 透视变换的 JS 契约（预留） |
+| 切边接口 | `src/lib/documentDetection.ts` | 四角检测 / 批量 / 透视变换的 JS 契约，检测器可插拔 |
+| 端侧切边 | `src/lib/nativeDocumentDetector.ts` | 接 `detectFile`：Android DocCornerNet ONNX，iOS Vision |
+| 服务端切边 | `src/lib/detectionServer.ts` | `POST /api/edgeDetector`（model_1228），JPG 90% 压缩，8 s 超时 |
+| OCR | `src/lib/ocrLocal.ts`、`ocrServer.ts`、`ocrStorage.ts` | 端侧 PP-OCRv4 / Vision，服务端 `/api/ocr` 兜底，结果按页存盘 |
 | 类型 | `src/types.ts` | `FilterKey`、`DocPage`、`ScanDoc`、`PdfDoc`、`DocumentQuad`、文案 |
 | 原生桥 | `modules/image-core/*` | Expo 模块封装、平台解码/编码、JNI/NAPI |
 | 算法 | `modules/image-core/common/*` | 纯 C++ 像素处理 |
@@ -1133,6 +1140,8 @@ loupe              // CropOverlay：整层 PanResponder + 就近抓取（64 dp�
 | Camera | 权限申请、取景框、快门、相册入口 |
 | PhotoPicker | 应用内相册：分页网格、点选 + 横向划选、按选择顺序编号、全屏预览、完成回调；`limit` 由调用方给 |
 | ScanEditor | 导入编辑页：批量/继续导入、滑动翻页、页码行按住对比、算法缩略图、第二步微调、应用到所有页、四角裁剪、旋转、删除/重拍此页、可编辑的 PDF 文档名、分享、全部页面保存到相册、保存成 PDF |
+| OcrScreen | 文字识别：导入/拍照 → 逐页识别（端侧优先，服务端兜底）→ 每页一个文本框编辑；点框或移动光标把图片放大到那一行；复制 / 分享文本 |
+| OcrBoxOverlay | 识别框只负责显示（`pointerEvents="none"`），命中判断在 OcrScreen 的图片层统一做 |
 | CropOverlay | 四角裁剪的手势层：角点圆圈、边中点长条；整层就近抓取（GRAB_RADIUS），触摸区外扩 `inset` 让贴边手柄可抓；非凸四边形边框变红 |
 | CropLoupe | 拖动时的放大镜：透明圆形视窗，镜心与手柄固定偏移、不夹取（1:1 跟手），只放大图片区域，界外透明 |
 | Editor | 预处理、滤镜切换、旋转、保存；`showPageTools` 时额外显示切边/批注/恢复原图 |
@@ -1632,7 +1641,8 @@ iOS：分享面板）。模拟器上系统面板本身要 3–5 s，之前这段
 
 | 功能 | 建议落点 |
 |---|---|
-| 边缘检测 | 四角手动/默认裁剪与 C++ 透视校正已实现（`src/lib/crop.ts`、`CropOverlay.tsx`、`warp_pixels`）；下一步接 ONNX 出四角建议，见 [EDGE_DETECTION.md](EDGE_DETECTION.md) |
+| 边缘检测 | 已接端侧模型：Android DocCornerNet ONNX、iOS Vision（`nativeDocumentDetector.ts`）；相机预览实时四角、导入/拍照自动切边；配置了服务端时手动裁剪改问 model_1228（`detectionServer.ts`） |
+| 鸿蒙切边 / OCR | 共享 C++ 内核里再补一份检测与推理（或 NAPI 调 ONNX Runtime），H5 侧沿用现有入口 |
 | ONNX 批量推理 / 低内存 | 有界并发 + session 复用 + 降采样解码，见 [EDGE_DETECTION.md](EDGE_DETECTION.md) §5 |
 | 手动批注 | `DocPage.annotations` 已预留（扫描与 PDF 共用）；建议渲染成位图写回 `uri`，避免 PDF 阶段再合成 |
 | 大页数 PDF | 原生流式 writer 替换 expo-print，见 [EDGE_DETECTION.md](EDGE_DETECTION.md) §6 |
@@ -1729,7 +1739,8 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
     （[EDGE_DETECTION.md](EDGE_DETECTION.md) §6）。
 12. **PDF 生成失败会整份重来**：expo-print 没有分页写入或断点续传，重新生成会重读
     所有页面。页面源图不删，所以数据不会丢。
-13. **切边与批注未实现**：只有数据类型、JS 契约和 UI 入口，没有模型与渲染层。
+13. **批注未实现**：`DocPage.annotations` 只有数据类型和入口，没有渲染层；切边已由
+    端侧模型实现（Android DocCornerNet / iOS Vision），鸿蒙端仍只有手动四角。
 14. **`expo-print` 的 `numberOfPages` 是估算值**：Android 端按
     `1 + contentHeight / pageHeight` 计算，可能与实际页数不一致，仅用于日志。
 
@@ -1761,7 +1772,8 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 | 页面文件 | `src/lib/pageStore.ts` |
 | PDF 生成 | `src/lib/pdf.ts` |
 | PDF 存储 | `src/lib/pdfStorage.ts` |
-| 切边接口 | `src/lib/documentDetection.ts` |
+| 切边接口 | `src/lib/documentDetection.ts`、`nativeDocumentDetector.ts`、`detectionServer.ts` |
+| OCR | `src/lib/ocrLocal.ts`、`ocrServer.ts`、`ocrStorage.ts`、`src/screens/OcrScreen.tsx` |
 | 相册选择器 | `src/screens/PhotoPickerScreen.tsx` |
 | 多页扫描编辑 | `src/screens/ScanEditorScreen.tsx` |
 | 单页编辑 | `src/screens/EditorScreen.tsx`（`showPageTools`）、`src/screens/PdfScreen.tsx` |
