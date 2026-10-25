@@ -9,8 +9,12 @@ export const DETECTION_ENDPOINT = '/api/edgeDetector';
 
 // 服务端不可达时必须很快退化到端侧识别，否则点「裁剪」会像卡死一样
 const DEFAULT_TIMEOUT_MS = 4000;
-/** 上传前压到 1280，既够 1228 模型用，也不会把 5MB base64 塞进 JSON */
-const UPLOAD_MAX_DIM = 1280;
+/**
+ * 上传图「短边」上限。竖向 A4 的短边就是页宽，压到 1280 后长边约 1800——
+ * 长边按 1280 压只剩 960 宽，细边框和表格线会糊掉，1228 反而更容易认偏。
+ * 横版/竖版同一套规则：短边对齐 1280，长边按原始比例跟着走。
+ */
+const UPLOAD_MAX_SHORT_SIDE = 1280;
 
 type ServerResponse = {
   code?: number;
@@ -85,6 +89,20 @@ function parsePoints(value: unknown): { x: number; y: number }[] | null {
 }
 
 /**
+ * 短边限制换算成 resizeImage 认识的长边上限。
+ *
+ * resizeImage 只接受「最长边」；短边没超限时原样返回长边（配合 alwaysEncode
+ * 只重新编码、不缩放），超限时按同一比例把长边一起缩下来。
+ */
+async function uploadMaxDim(uri: string, maxShortSide: number): Promise<number> {
+  const { width, height } = await getImageSize(uri);
+  const shortSide = Math.min(width, height);
+  const longSide = Math.max(width, height);
+  if (shortSide <= maxShortSide || shortSide === 0) return longSide;
+  return Math.round((maxShortSide * longSide) / shortSide);
+}
+
+/**
  * 调服务端 model_1228 重新识别四角。
  *
  * 传进来的 uri 是用户当前看到的图片（已旋转/未滤镜的 baseUri）；
@@ -94,7 +112,7 @@ function parsePoints(value: unknown): { x: number; y: number }[] | null {
 export async function detectOnServer(
   uri: string,
   baseUrl: string,
-  options: { signal?: AbortSignal; maxDim?: number } = {},
+  options: { signal?: AbortSignal; maxShortSide?: number } = {},
 ): Promise<DocumentDetection | null> {
   const base = baseUrl.replace(/\/+$/, '');
   if (!base) return null;
@@ -104,7 +122,11 @@ export async function detectOnServer(
   try {
     // 统一按 JPEG 90% 重新编码上传：服务端只做角点识别，90% 完全够用，
     // 截屏/PNG 原图也能把体积压到几百 KB，避免 JSON base64 太大导致超时。
-    uploadUri = await resizeImage(uri, options.maxDim ?? UPLOAD_MAX_DIM, 0.9, true);
+    const uploadDim = await uploadMaxDim(
+      uri,
+      options.maxShortSide ?? UPLOAD_MAX_SHORT_SIDE,
+    );
+    uploadUri = await resizeImage(uri, uploadDim, 0.9, true);
     temporary = uploadUri !== uri;
     const { width, height } = await getImageSize(uploadUri);
     const base64 = await readBase64(uploadUri);
