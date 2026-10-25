@@ -34,6 +34,9 @@ harmony/local.properties
 /scan_*.png
 /demo_*.png
 
+# 本地实验数据（模型下载、调试截图、一次性脚本），不入库
+/scratch/
+
 # logs / misc
 *.log
 npm-debug.log*
