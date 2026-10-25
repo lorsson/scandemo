@@ -36,6 +36,13 @@ public final class ImageCoreCameraView: ExpoView {
   private var lastAnalysisAt: CFTimeInterval = 0
   private var inFlight = false
 
+  /// 分析帧是否已经被连接转正。
+  ///
+  /// iOS 17 起 `videoRotationAngle` 对 `AVCaptureVideoDataOutput` 生效，缓冲直接是
+  /// 竖直的；旧系统上这个属性只作用于预览/拍照，数据输出仍是传感器方向。拿不准时
+  /// 宁可不画框，也不要把横置帧的四角画到竖直预览上。
+  private var analysisFrameIsUpright = false
+
   // 平滑后的视图归一化四角
   private var smoothed: [Double]?
   private var lastDetectedAt: CFTimeInterval = 0
@@ -160,27 +167,42 @@ public final class ImageCoreCameraView: ExpoView {
     session.addOutput(photoOutput)
 
     // 预览/帧/拍照统一竖屏方向；测试时只支持竖直握持
-    Self.applyPortraitOrientation(to: videoOutput.connection(with: .video))
+    analysisFrameIsUpright = Self.applyPortraitOrientation(
+      to: videoOutput.connection(with: .video)
+    )
     Self.applyPortraitOrientation(to: photoOutput.connection(with: .video))
     Self.applyPortraitOrientation(to: previewLayer.connection)
+    if !analysisFrameIsUpright {
+      // 旧系统拿不到竖直的分析帧；预览框关掉，拍照后的自动切边照常工作
+      NSLog("[image-core] portrait analysis unsupported, live quad disabled")
+    }
 
     return true
   }
 
-  private static func applyPortraitOrientation(to connection: AVCaptureConnection?) {
-    guard let connection else { return }
+  /// 转正连接方向；返回 true 表示「数据输出的缓冲也会跟着转」
+  @discardableResult
+  private static func applyPortraitOrientation(to connection: AVCaptureConnection?) -> Bool {
+    guard let connection else { return false }
     if #available(iOS 17.0, *) {
       if connection.isVideoRotationAngleSupported(90) {
         connection.videoRotationAngle = 90
+        return true
       }
-    } else if connection.isVideoOrientationSupported {
+      return false
+    }
+    if connection.isVideoOrientationSupported {
       connection.videoOrientation = .portrait
     }
+    // 旧系统的 videoOrientation 只影响预览/拍照，不影响帧缓冲
+    return false
   }
 
   // MARK: - 帧分析
 
   private func analyze(pixelBuffer: CVPixelBuffer) {
+    // 帧没转正就算出四角也没法映射到竖直预览；不发事件，JS 会一直显示静态取景框
+    guard analysisFrameIsUpright else { return }
     let now = CACurrentMediaTime()
     if now - lastAnalysisAt < 0.12 {
       return
