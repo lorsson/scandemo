@@ -12,6 +12,11 @@ public final class ImageCoreModule: Module {
       String(cString: ImageCoreVersion())
     }
 
+    // JS 流程日志转发到系统日志，release 里 console.* 不会进设备日志
+    Function("logMessage") { (tag: String, message: String) in
+      NSLog("[ImageCore/%@] %@", tag, message)
+    }
+
     AsyncFunction("processFile") {
       (inputPath: String, outputPath: String, filter: String, quality: Int) -> [String: Any] in
       try processFile(
@@ -108,6 +113,13 @@ public final class ImageCoreModule: Module {
     AsyncFunction("detectFile") { (path: String) -> [String: Any]? in
       DocumentRectDetector.detectFile(path: path)?.dictionary
     }
+
+    // 端侧文字识别（Vision）：path 不带 file://，与 Android ocrFile 同契约
+    AsyncFunction("ocrFile") { (path: String) -> [String: Any]? in
+      DocumentTextRecognizer.ocrFile(path: path)
+    }
+
+    Function("isOcrAvailable") { DocumentTextRecognizer.isSupported() }
 
     // JS 侧需要同步判断能否渲染原生取景组件
     Function("isCameraAvailable") { true }

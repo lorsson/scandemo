@@ -33,6 +33,7 @@ import PhotoPickerScreen from './PhotoPickerScreen';
 import CropOverlay from '../components/CropOverlay';
 import OcrBoxOverlay from '../components/OcrBoxOverlay';
 import { isAbortError } from '../lib/abort';
+import { logError, logEvent } from '../lib/appLog';
 import {
   FULL_QUAD,
   cloneQuad,
@@ -240,7 +241,7 @@ export default function OcrScreen({
             );
           }
         } catch (error) {
-          console.warn('[ocr] auto crop failed:', error);
+          logError('ocr', 'auto crop failed', error);
         }
       }
       setBusy(null);
@@ -269,6 +270,11 @@ export default function OcrScreen({
         return;
       }
 
+      logEvent('ocr', 'recognize start', {
+        pages: targets.length,
+        onDevice,
+        server: Boolean(baseUrl),
+      });
       runningRef.current = true;
       const controller = new AbortController();
       abortRef.current = controller;
@@ -281,6 +287,7 @@ export default function OcrScreen({
         for (let index = 0; index < targets.length; index += 1) {
           if (controller.signal.aborted) break;
           const page = targets[index];
+          const pageStartedAt = Date.now();
           setBusy({ kind: 'recognize', done: index, total: targets.length });
           updatePage(page.id, (current) => ({
             ...current,
@@ -295,7 +302,7 @@ export default function OcrScreen({
               } catch (error) {
                 // 端侧模型异常时还有服务端兜底；都没有就把错误留给下方统一处理
                 if (!baseUrl) throw error;
-                console.warn('[ocr] on-device failed, falling back to server', error);
+                logError('ocr', 'on-device failed, falling back to server', error);
                 lines = await recognizeOnServer(page.uri, baseUrl, {
                   signal: controller.signal,
                 });
@@ -305,6 +312,11 @@ export default function OcrScreen({
                 signal: controller.signal,
               });
             }
+            logEvent('ocr', 'page done', {
+              slot: page.slot,
+              lines: lines.length,
+              ms: Date.now() - pageStartedAt,
+            });
             updatePage(page.id, (current) => ({
               ...current,
               status: 'done',
@@ -315,6 +327,7 @@ export default function OcrScreen({
             }));
           } catch (error) {
             if (isAbortError(error)) break;
+            logError('ocr', `page ${page.slot} failed`, error);
             failed += 1;
             updatePage(page.id, (current) => ({
               ...current,
@@ -375,7 +388,7 @@ export default function OcrScreen({
             setBusy({ kind: 'import', done: index + 1, total: uris.length });
           }
         } catch (error) {
-          console.warn('[ocr] import failed', error);
+          logError('ocr', 'import failed', error);
           Alert.alert(
             t('ocrImportFailedTitle'),
             error instanceof Error ? error.message : t('unknownError'),
@@ -516,6 +529,8 @@ export default function OcrScreen({
 
   // —— 图片框与文本框联动 ——
   const textRef = useRef<ComponentRef<typeof TextInput>>(null);
+  /** 上一次打日志的光标行：打字时不重复刷屏 */
+  const lastRowRef = useRef(-1);
 
   /** 点图片上的框：高亮它并把图片放大到这一行（文字编辑交给下面的文本框） */
   const focusLine = useCallback((lineId: string) => {
@@ -673,6 +688,11 @@ export default function OcrScreen({
     // 目标框的中心对齐到画布中心；图片比画布大时再夹住，别把边缘拖进来露出空白
     const centerX = resultStage.width / 2 - ((x0 + x1) / 2) * width;
     const centerY = resultStage.height / 2 - ((y0 + y1) / 2) * height;
+    logEvent('ocr', 'zoom', {
+      row: rows.indexOf(target),
+      scale: Number(scale.toFixed(2)),
+      image: [width, height].map(Math.round),
+    });
     return {
       x:
         width >= resultStage.width
@@ -704,6 +724,7 @@ export default function OcrScreen({
   const handleImagePress = useCallback(
     (event: GestureResponderEvent) => {
       if (keyboardUp) {
+        logEvent('ocr', 'image tap → dismiss keyboard');
         Keyboard.dismiss();
         setPickedLineId(null);
         setSelectedLineId(null);
@@ -736,6 +757,12 @@ export default function OcrScreen({
           hit = line;
         }
       }
+      logEvent('ocr', 'image tap', {
+        x: Math.round(locationX),
+        y: Math.round(locationY),
+        rect: [rect.x, rect.y, rect.width, rect.height].map(Math.round),
+        hit: hit ? hit.text : null,
+      });
       if (hit) {
         focusLine(hit.id);
       } else {
@@ -1119,6 +1146,10 @@ export default function OcrScreen({
                       if (text[index] === '\n') row += 1;
                     }
                     setCursorRow(row);
+                    if (lastRowRef.current !== row) {
+                      lastRowRef.current = row;
+                      logEvent('ocr', 'caret row', { row });
+                    }
                     setPickedLineId(null);
                   }}
                   // 开始改文字了：之前点选的框不再抢镜头，跟着光标走

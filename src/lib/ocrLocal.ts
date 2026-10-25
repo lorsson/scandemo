@@ -8,11 +8,11 @@ import { buildLines, type OcrLine } from './ocr';
 import type { NormalizedPoint } from '../types';
 
 /**
- * 端侧文字识别：PP-OCRv4（det + cls + rec）跑在 Android 原生侧，
- * 契约与服务端 `/api/ocr` 一致 —— 原生返回位图像素坐标，这里换成归一化坐标，
- * 上层（OcrScreen / 编辑 / 导出）完全不感知推理在哪跑。
+ * 端侧文字识别：Android 跑 PP-OCRv4（ONNX，det + cls + rec），iOS 用系统
+ * Vision；两边的原生契约与服务端 `/api/ocr` 一致 —— 返回位图像素坐标，这里换成
+ * 归一化坐标，上层（OcrScreen / 编辑 / 导出）完全不感知推理在哪跑。
  *
- * iOS 与 Expo Go 没有实现；isOnDeviceOcrAvailable() 为 false 时退回服务端。
+ * Expo Go 没有原生模块；isOnDeviceOcrAvailable() 为 false 时退回服务端。
  */
 export function isOnDeviceOcrAvailable(): boolean {
   return isNativeOcrAvailable();

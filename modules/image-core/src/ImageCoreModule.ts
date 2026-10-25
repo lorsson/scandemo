@@ -93,6 +93,8 @@ export type NativeCameraViewHandle = {
 
 type ImageCoreNativeModule = {
   version(): string;
+  /** 把 JS 的流程日志写进系统日志：release 里 console.* 到不了 logcat */
+  logMessage?(tag: string, message: string): void;
   /** 实时相机 View 是否注册（Android CameraX / iOS AVCaptureSession） */
   isCameraAvailable?(): boolean;
   /** 端侧文档四角检测；path 不带 file://（Android DocCornerNet / iOS Vision） */
@@ -168,6 +170,16 @@ export function isImageCoreAvailable(): boolean {
 
 export function imageCoreVersion(): string | null {
   return nativeModule?.version() ?? null;
+}
+
+/** 原生侧能否收日志（Expo Go 与旧构建没有这个方法） */
+export function isNativeLogAvailable(): boolean {
+  return typeof nativeModule?.logMessage === 'function';
+}
+
+/** 写一行系统日志；Android 进 logcat（tag=ImageCore），iOS 进 NSLog */
+export function logWithNative(tag: string, message: string): void {
+  nativeModule?.logMessage?.(tag, message);
 }
 
 export function imageCoreLoadError(): Error | null {

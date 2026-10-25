@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.pdf.PdfDocument
 import android.os.SystemClock
+import android.util.Log
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -85,6 +86,12 @@ class ImageCoreModule : Module() {
     Name("ImageCore")
 
     Function("version") { nativeVersion() }
+
+    // 正式包（release）里 Hermes 会丢掉 console.*，JS 的流程日志到不了 logcat。
+    // 需要靠 adb 看流程时，JS 走这里转发：Log.i("ImageCore", "[ocr] ...")。
+    Function("logMessage") { tag: String, message: String ->
+      Log.i("ImageCore", "[$tag] $message")
+    }
 
     // 按 EXIF 转正后的像素尺寸（与 RN Image 实际显示的方向一致）。
     // JS 的 Image.getSize 给的是文件里的原始宽高，竖拍照片会差 90°。
