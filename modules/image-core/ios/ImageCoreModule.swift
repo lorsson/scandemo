@@ -440,7 +440,8 @@ public final class ImageCoreModule: Module {
       else {
         throw ImageCoreError.processFailed
       }
-      context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+      // uprightImage 返回 (宽, 高, 转正后的 CGImage) 元组
+      context.draw(image.image, in: CGRect(x: 0, y: 0, width: width, height: height))
     }
     return (width, height, pixels)
   }
@@ -551,12 +552,12 @@ public final class ImageCoreModule: Module {
   ) throws -> [String: Any] {
     let startedAt = CFAbsoluteTimeGetCurrent()
 
-    guard let image = UIImage(contentsOfFile: inputPath)?.cgImage else {
-      throw ImageCoreError.decodeFailed(inputPath)
-    }
-
-    let width = image.width
-    let height = image.height
+    // 与 decodePixels 用同一套方向：滤镜和裁剪看到的像素必须一致，
+    // 否则带 EXIF 的竖拍原图经过滤镜会被整体转 90°
+    let upright = try uprightImage(inputPath)
+    let image = upright.image
+    let width = upright.width
+    let height = upright.height
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     // premultipliedFirst + little endian => 内存里每个 UInt32 是 0xAARRGGBB，
     // 与 Android 的 Int 像素格式一致，共用同一份 C++ 核心
