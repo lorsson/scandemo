@@ -83,11 +83,38 @@ H5  nativeBridge.dispatch(JSON)  ->  Index.ets NativeBridge (serial queue)
 - Thousands of result bytes (data URLs, page lists) cannot be returned from a
   `javaScriptProxy` method reliably, hence the `runJavaScript` callback.
 - The proxy is synchronous and has no file access, so every op is a **command**
-  (`sample`, `pick`, `base`, `render`, `thumbs`, `warp`, `read`, `delete`,
-  `pdf`, `saveImages`, `version`), never a shared-memory buffer.
+  (`sample`, `pick`, `base`, `render`, `thumbs`, `warp`, `ocr`, `read`,
+  `delete`, `pdf`, `saveImages`, `version`), never a shared-memory buffer.
 - Only the visible page asks for image data (`withData`); other pages get file
   paths and are rendered when activated. Images are displayed as data URLs
   because `file://` access inside ArkWeb is not reliable for cache paths.
+
+## OCR (server-backed)
+
+HarmonyOS has no on-device OCR model, so the H5 toolbar's **提取文字** button calls
+the detection server's `/api/ocr` — the same contract the RN app uses in
+`src/lib/ocrServer.ts`, and the same server already configured for edge
+detection (`localStorage` key `scan.detection.serverUrl.v1`).
+
+```
+H5 runOcr()                      (index.html)
+  -> call('ocr', {input, serverUrl}, 90s)
+  -> Index.ets NativeBridge.ocrOnServer()
+       -> ImageCoreService.resizeFile(input, <cache>/ocr-*.jpg, 1600, 90)
+       -> fileBase64 -> POST <serverUrl>/api/ocr {"image": base64}   (readTimeout 60s)
+       -> readingText(): group boxes into rows, left-to-right inside a row
+  -> {text}  ->  result panel (#ocrPanel), with 复制 / 完成
+```
+
+- Request/response are the RN ones: `{code:200, data:{width, height, lines:
+  [{points: [[x,y]×4], text, score}]}}`, `points` in uploaded-image pixels.
+- Rows are grouped by vertical centre with `tolerance = max(0.008, median line
+  height × 0.6)`; the rest of `readingText` mirrors `src/lib/ocr.ts`.
+- No server URL → the H5 opens the server panel and asks the user to configure
+  one; network/HTTP/parse errors are surfaced as 识别失败 rather than "no text".
+- The upload is the current page's preview (filtered) image, re-encoded as
+  JPEG q90 with the long side capped at 1600 px; the temp file is deleted in
+  `finally`.
 
 ## PDF feature
 
@@ -149,7 +176,10 @@ On Windows use `ohpm.bat` / `hvigorw.bat` (both need `node` on PATH).
   `BUILD SUCCESSFUL` (53 s), output
   `entry/build/default/outputs/default/entry-default-unsigned.hap`, after the
   full scan editor and the 8-function NAPI surface were added (ArkTS strict
-  mode passes; earlier builds covered `PdfPage.ets` / `PdfWriter.ets`).
+  mode passes; earlier builds covered `PdfPage.ets` / `PdfWriter.ets`). The
+  later build that added the server-backed `ocr` op is also
+  `BUILD SUCCESSFUL` (incremental), and the H5 suite now runs 63 checks
+  (OCR panel: no-server prompt, request payload, result text, failure toast).
 - HAP contains `libs/arm64-v8a/libimage_core.so` (stripped, 10 KB) plus
   `resources/rawfile/{index.html,sample.jpg}` and `ets/modules.abc`.
 - The `.so` is ELF64 AArch64 and exports `RegisterImageCoreModule`; the NAPI

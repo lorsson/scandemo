@@ -325,6 +325,48 @@
     .serverState.ok { color: #5fd18a; }
     .serverState.bad { color: #ff8f88; }
 
+    /* ---------------- OCR 结果 ---------------- */
+    #ocrPanel {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 50;
+    }
+    #ocrPanel.open { display: flex; }
+    .ocrCard {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      max-height: 78%;
+      padding: 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: #161b27;
+    }
+    .ocrHead { display: flex; align-items: center; justify-content: space-between; }
+    .ocrTitle { font-size: 15px; font-weight: 700; color: var(--text); }
+    #ocrText {
+      flex: 1 1 auto;
+      min-height: 220px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: #1c2130;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+      resize: none;
+      outline: none;
+      white-space: pre-wrap;
+    }
+    .ocrActions { display: flex; gap: 10px; }
+    .ocrActions .cropAction { flex: 1; }
+
     /* 裁剪底栏 */
     #cropBar { display: none; }
     .cropHint { margin: 2px 0 8px; text-align: center; font-size: 13px; color: #c9ced8; }
@@ -547,6 +589,20 @@
     <div class="ring"></div>
   </div>
 
+  <div id="ocrPanel">
+    <div class="ocrCard">
+      <div class="ocrHead">
+        <span class="ocrTitle">识别结果</span>
+        <button class="serverBtn" id="ocrClose">关闭</button>
+      </div>
+      <textarea id="ocrText" readonly spellcheck="false"></textarea>
+      <div class="ocrActions">
+        <button class="cropAction" id="ocrCopy">复制</button>
+        <button class="cropAction primary" id="ocrDone">完成</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast"></div>
 
   <script>
@@ -639,6 +695,8 @@
       const serverPanel = document.getElementById('serverPanel');
       const serverUrlInput = document.getElementById('serverUrl');
       const serverState = document.getElementById('serverState');
+      const ocrPanel = document.getElementById('ocrPanel');
+      const ocrText = document.getElementById('ocrText');
 
       // ---------------------------------------------------------------------
       // 原生桥
@@ -884,6 +942,82 @@
         page.height = 0;
         call('delete', { paths: [oldSource] }).catch(function () {});
         return true;
+      }
+
+      // ---------------------------------------------------------------------
+      // OCR 文字识别
+      //
+      // 鸿蒙端还没有端侧模型，只走识别服务的 /api/ocr（与 RN 端 ocrServer.ts
+      // 同一契约）。没配服务地址时引导用户打开上面的「识别服务」面板。
+      // ---------------------------------------------------------------------
+      let ocrRunning = false;
+
+      async function runOcr() {
+        const page = activePage();
+        if (!page) {
+          showToast('先导入或拍一张图片', 1800);
+          return;
+        }
+        const url = getServerUrl();
+        if (!url) {
+          serverPanel.classList.add('open');
+          syncServerPanel();
+          showToast('鸿蒙端还没有端侧 OCR，请先配置识别服务地址', 3000);
+          return;
+        }
+        if (ocrRunning || state.running) return;
+        ocrRunning = true;
+        showToast('正在识别文字…', 2000);
+        try {
+          // 用处理后的预览图：滤镜（黑白/增强）后的笔画更干净
+          const input = page.previewPath || page.source;
+          const r = await call('ocr', { input: input, serverUrl: url }, 90000);
+          const text = r.text || '';
+          if (!text) {
+            showToast('这一页没有识别到文字', 2200);
+            return;
+          }
+          ocrText.value = text;
+          ocrPanel.classList.add('open');
+        } catch (e) {
+          showToast('识别失败：' + e.message, 2800);
+        } finally {
+          ocrRunning = false;
+        }
+      }
+
+      function closeOcr() {
+        ocrPanel.classList.remove('open');
+      }
+
+      function copyOcr() {
+        const text = ocrText.value;
+        if (!text) {
+          showToast('没有可复制的文字', 1600);
+          return;
+        }
+        ocrText.focus();
+        ocrText.select();
+        let copied = false;
+        try {
+          copied = document.execCommand('copy');
+        } catch (e) {
+          copied = false;
+        }
+        if (copied) {
+          showToast('已复制', 1400);
+          return;
+        }
+        // ArkWeb 里 execCommand 可能被拦；navigator.clipboard 需要 https/权限
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () {
+            showToast('已复制', 1400);
+          }).catch(function () {
+            showToast('复制失败，长按选中文字', 2000);
+          });
+          return;
+        }
+        showToast('复制失败，长按选中文字', 2000);
       }
 
       function moveQuad(start, handle, dnx, dny) {
@@ -1796,7 +1930,7 @@
           else if (tool === 'left') rotateBy(270);
           else if (tool === 'right') rotateBy(90);
           else if (tool === 'crop') enterCrop();
-          else if (tool === 'ocr') showToast('OCR 文字识别功能正在开发中。', 2400);
+          else if (tool === 'ocr') runOcr();
           else if (tool === 'server') {
             serverPanel.classList.toggle('open');
             if (serverPanel.classList.contains('open')) {
@@ -1831,6 +1965,14 @@
         } catch (e) {
           renderServerState('无法连接：' + e.message, 'bad');
         }
+      });
+
+      // OCR 结果面板
+      document.getElementById('ocrClose').addEventListener('click', closeOcr);
+      document.getElementById('ocrDone').addEventListener('click', closeOcr);
+      document.getElementById('ocrCopy').addEventListener('click', copyOcr);
+      ocrPanel.addEventListener('click', function (event) {
+        if (event.target === ocrPanel) closeOcr();
       });
 
       adjustSlider.addEventListener('input', onAdjustInput);

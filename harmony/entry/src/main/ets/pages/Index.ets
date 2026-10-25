@@ -57,6 +57,25 @@ interface ThumbPayload {
   data: string;
 }
 
+/** 服务端 OCR 的一行：points 是上传图上的 4 个像素坐标 */
+interface OcrRawLine {
+  points?: number[][];
+  text?: string;
+  score?: number;
+}
+
+interface OcrData {
+  width?: number;
+  height?: number;
+  lines?: OcrRawLine[];
+}
+
+interface OcrResponse {
+  code?: number;
+  message?: string;
+  data?: OcrData;
+}
+
 interface PagePayload {
   id: string;
   source: string;
@@ -90,6 +109,8 @@ interface BridgeResult {
   quad?: number[] | null;
   /** ping 的结果：能收到任意 HTTP 响应即为 true */
   reachable?: boolean;
+  /** ocr 的结果：按阅读顺序拼好的整页文本 */
+  text?: string;
 }
 
 const SCAN_MAX_DIM: number = 1400;
@@ -271,6 +292,157 @@ class NativeBridge {
     } finally {
       this.deleteQuietly(small);
     }
+  }
+
+  /**
+   * 服务端 OCR（与 RN 端 ocrServer.ts 同一契约）：`POST /api/ocr`
+   * 请求 `{ image: base64 }`，返回 `{ data: { width, height, lines } }`，
+   * points 是上传图像素坐标。鸿蒙端还没有端侧模型，所以只能走服务端。
+   *
+   * 行按「先分行、行内从左到右」拼成整页文本，与 RN 的 readingRows 同口径；
+   * 网络/服务错误向上抛，让 H5 提示「识别失败」，不要伪装成「没有文字」。
+   */
+  private async ocrOnServer(input: string, serverUrl: string): Promise<string> {
+    const dir: string = this.ensureWorkDir();
+    const small: string = dir + '/ocr-' + this.nextId('') + '.jpg';
+    try {
+      // 短边 1600 以内不缩放，只统一成 JPEG（OCR 对细笔画敏感）
+      const timings: FilterTimings =
+        await ImageCoreService.resizeFile(input, small, 1600, 90);
+      const base64: string = this.fileBase64(small);
+      if (base64 === '') {
+        throw new Error('读取图片失败');
+      }
+      const request: http.HttpRequest = http.createHttp();
+      try {
+        const url: string = serverUrl.replace(/\/+$/, '') + '/api/ocr';
+        const response: http.HttpResponse = await request.request(url, {
+          method: http.RequestMethod.POST,
+          header: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          extraData: JSON.stringify({ image: base64 }),
+          connectTimeout: 5000,
+          // 90 行文字在桌面 CPU 上也要 6s，冷启动建模型更久
+          readTimeout: 60000,
+          expectDataType: http.HttpDataType.STRING,
+        });
+        if (response.responseCode !== 200 || typeof response.result !== 'string') {
+          throw new Error('HTTP ' + response.responseCode);
+        }
+        const body: OcrResponse = JSON.parse(response.result as string) as OcrResponse;
+        if (body.code !== 200) {
+          throw new Error(body.message === undefined ? '服务端返回错误' : body.message);
+        }
+        const raw: OcrRawLine[] =
+          body.data === undefined || body.data.lines === undefined ? [] : body.data.lines;
+        const width: number =
+          body.data === undefined || body.data.width === undefined
+            ? timings.width
+            : body.data.width;
+        const height: number =
+          body.data === undefined || body.data.height === undefined
+            ? timings.height
+            : body.data.height;
+        return this.readingText(raw, width, height);
+      } finally {
+        request.destroy();
+      }
+    } finally {
+      this.deleteQuietly(small);
+    }
+  }
+
+  /** 按行分组（垂直中心相近的算一行），行内从左到右，行间换行 */
+  private readingText(raw: OcrRawLine[], width: number, height: number): string {
+    const boxes: number[][] = [];
+    const texts: string[] = [];
+    const heights: number[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const points: number[][] | undefined = raw[i].points;
+      const rawText: string | undefined = raw[i].text;
+      const text: string = rawText === undefined ? '' : rawText.trim();
+      if (points === undefined || points.length !== 4 || text === '') {
+        continue;
+      }
+      let x0: number = points[0][0] / width;
+      let y0: number = points[0][1] / height;
+      let x1: number = x0;
+      let y1: number = y0;
+      for (let j = 1; j < 4; j++) {
+        const x: number = points[j][0] / width;
+        const y: number = points[j][1] / height;
+        x0 = Math.min(x0, x);
+        x1 = Math.max(x1, x);
+        y0 = Math.min(y0, y);
+        y1 = Math.max(y1, y);
+      }
+      boxes.push([x0, y0, x1, y1]);
+      texts.push(text);
+      heights.push(y1 - y0);
+    }
+    if (boxes.length === 0) {
+      return '';
+    }
+
+    const order: number[] = [];
+    for (let i = 0; i < boxes.length; i++) {
+      order.push(i);
+    }
+    order.sort((a: number, b: number) => {
+      const ca: number = (boxes[a][1] + boxes[a][3]) / 2;
+      const cb: number = (boxes[b][1] + boxes[b][3]) / 2;
+      return ca === cb ? boxes[a][0] - boxes[b][0] : ca - cb;
+    });
+
+    // 行高取中位数：标题和正文差别大，用平均会被标题带偏
+    const sortedHeights: number[] = heights.slice().sort((a: number, b: number) => a - b);
+    const median: number = sortedHeights[Math.floor(sortedHeights.length / 2)] || 0.02;
+    const tolerance: number = Math.max(0.008, median * 0.6);
+
+    // 与 src/lib/ocr.ts 的 readingRows 同口径：和「行的第一行」比中心，
+    // 不用滚动平均值（会越并越偏）；竖排框不并进横向的行。
+    const rows: number[][] = [];
+    for (let i = 0; i < order.length; i++) {
+      const index: number = order[i];
+      const box: number[] = boxes[index];
+      const center: number = (box[1] + box[3]) / 2;
+      const horizontal: boolean = (box[2] - box[0]) >= (box[3] - box[1]);
+      let merged: boolean = false;
+      if (rows.length > 0 && horizontal) {
+        const row: number[] = rows[rows.length - 1];
+        const anchorBox: number[] = boxes[row[0]];
+        const anchor: number = (anchorBox[1] + anchorBox[3]) / 2;
+        let rowHorizontal: boolean = true;
+        for (let k = 0; k < row.length; k++) {
+          const member: number[] = boxes[row[k]];
+          if ((member[2] - member[0]) < (member[3] - member[1])) {
+            rowHorizontal = false;
+            break;
+          }
+        }
+        merged = Math.abs(center - anchor) <= tolerance && rowHorizontal;
+      }
+      if (merged) {
+        rows[rows.length - 1].push(index);
+      } else {
+        rows.push([index]);
+      }
+    }
+
+    const lines: string[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      lines.push(this.rowText(rows[i], boxes, texts));
+    }
+    return lines.join('\n');
+  }
+
+  private rowText(row: number[], boxes: number[][], texts: string[]): string {
+    const sorted: number[] = row.slice();
+    sorted.sort((a: number, b: number) => boxes[a][0] - boxes[b][0]);
+    let text: string = '';
+    for (let i = 0; i < sorted.length; i++) {
+      text = text === '' ? texts[sorted[i]] : text + ' ' + texts[sorted[i]];
+    }
+    return text;
   }
 
   private nextId(prefix: string): string {
@@ -498,6 +670,16 @@ class NativeBridge {
         }
         const quad: number[] | null = await this.detectOnServer(input, serverUrl);
         this.post({ id: req.id, ok: true, quad: quad });
+        return;
+      }
+      if (req.op === 'ocr') {
+        const input: string = this.requireString(req.input, 'input');
+        const serverUrl: string = req.serverUrl === undefined ? '' : req.serverUrl.trim();
+        if (serverUrl === '') {
+          throw new Error('未配置识别服务');
+        }
+        const text: string = await this.ocrOnServer(input, serverUrl);
+        this.post({ id: req.id, ok: true, text: text });
         return;
       }
       if (req.op === 'warp') {
