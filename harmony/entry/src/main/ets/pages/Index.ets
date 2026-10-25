@@ -306,7 +306,7 @@ class NativeBridge {
     const dir: string = this.ensureWorkDir();
     const small: string = dir + '/ocr-' + this.nextId('') + '.jpg';
     try {
-      // 短边 1600 以内不缩放，只统一成 JPEG（OCR 对细笔画敏感）
+      // 预览图本来就压到 1400 长边，这里只统一成 JPEG q90（不放大）
       const timings: FilterTimings =
         await ImageCoreService.resizeFile(input, small, 1600, 90);
       const base64: string = this.fileBase64(small);

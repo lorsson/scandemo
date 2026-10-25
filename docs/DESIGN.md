@@ -1544,7 +1544,7 @@ iOS：分享面板）。模拟器上系统面板本身要 3–5 s，之前这段
 | 编辑页顶栏 / 导出 | 模拟器 debug APK：标题默认取首图文件名（`s26`）→ 改成 `Test_Doc` → 分享（系统 CHOOSER）→ 保存所有图片（相册 +1）→ 保存成 PDF（SAF → `Download/Test_Doc.pdf`，`%PDF-1.4`）→ 返回（弹出放弃确认） | 通过 |
 | 划选 / 重拍 | 模拟器 debug APK：相册里横向划选一行 → 完成 → 图像右上角 ✕ → 重拍此页 → 选 1 张 → 完成 | 通过（一格起手整行选中、右上角 ✕ 三选一确认、重拍后该页源图与缩略图更新，页码不变） |
 | 鸿蒙 PDF | hvigor 编译 HAP + `PdfWriter.ets` 源码在宿主用 `fileIo` 桩运行 + `pdf-lib` 解析 | 13/13 字节校验（1/2 页）、独立解析 2 页 A4；未在真机/模拟器运行 |
-| 鸿蒙扫描编辑器 | hvigor 编译 HAP（ArkTS strict + CMake）+ 宿主 headless Edge 驱动 H5（mock `nativeBridge` 应答全部 op） | HAP `BUILD SUCCESSFUL`；H5 63/63（滤镜/微调/旋转/裁剪/非凸校验/导出/删除/OCR 面板与失败提示）；未在真机运行 |
+| 鸿蒙扫描编辑器 | hvigor 编译 HAP（ArkTS strict + CMake）+ 宿主 headless Edge 驱动 H5（mock `nativeBridge` 应答全部 op）+ 真服务 `/api/ocr` 复核契约 | HAP `BUILD SUCCESSFUL`；H5 63/63（滤镜/微调/旋转/裁剪/非凸校验/导出/删除/OCR 面板与失败提示）；`sample_doc.jpg` 返回 11 行、points 均在图内，移植的阅读顺序输出通顺；未在真机运行 |
 | 桌面 C ABI / CLI | Windows（MinGW-w64 16.2 + CMake 4.4）+ Linux（GCC 11 + CMake 3.22）编译运行 | C++ 自检 22/22；CLI 四滤镜、JPEG/PNG/BMP/TGA 均输出正确；DLL 只依赖 `KERNEL32` + UCRT |
 | 桌面 Python / Java | ctypes（3.12 Windows / 3.10 Linux）+ JNI（JDK 17，Windows 与 Linux） | Python 13/13；Java 16/16；`nm`/`objdump` 确认 3 个 `ic_*` 与 3 个 `Java_*` 导出 |
 
